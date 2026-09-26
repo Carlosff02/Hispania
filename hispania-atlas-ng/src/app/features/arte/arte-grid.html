@@ -1,0 +1,43 @@
+<div class="mx-auto max-w-[1600px] px-4 sm:px-6 py-8">
+  <h1 class="font-display text-4xl sm:text-5xl font-bold text-vicblue">
+    Bellas Artes y Expresión
+  </h1>
+
+  <div class="flex flex-wrap items-center gap-2 mt-8 pb-2 border-b border-paper-border">
+    @for (cat of categorias; track cat) {
+      <button
+        type="button"
+        (click)="selectFilter(cat)"
+        [ngClass]="filterClass(cat)"
+      >
+        {{ cat }}
+      </button>
+    }
+  </div>
+
+  <div class="mt-8 grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+    @for (obra of listaFiltrada(); track obra.title) {
+      <div class="bg-paper border border-paper-border p-4 shadow-vic flex flex-col">
+        <div class="p-2 border-4 border-ink bg-paper-light mb-4">
+          <img [src]="obra.img" [alt]="obra.title" class="w-full h-48 object-cover" />
+        </div>
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-[10px] text-brass-dark italic font-bold">
+            {{ obra.country }}
+          </span>
+          <span
+            class="text-[9px] px-2 py-0.5 bg-paper-dark border border-paper-border text-ink-muted uppercase font-bold"
+          >
+            {{ obra.cat }}
+          </span>
+        </div>
+        <h3 class="font-display text-2xl font-bold text-vicblue leading-tight mb-2">
+          {{ obra.title }}
+        </h3>
+        <p class="text-[13px] text-ink leading-relaxed flex-1">{{ obra.desc }}</p>
+      </div>
+    } @empty {
+      <p class="text-ink-muted italic text-[13px]">No hay obras para esta categoría.</p>
+    }
+  </div>
+</div>
