@@ -67,11 +67,34 @@ src/
         ├── arte/          ArteGrid
         ├── hitos/         Milestones
         ├── cultura/       Cultura
-        └── datos/         Datos
+        ├── datos/         Datos
+        ├── auth/          Login, Registro, Perfil, SinPermiso
+        ├── propuestas/    Propuestas (enviar y propias), Moderar
+        ├── lugares/       Lugares (CRUD directo), slug
+        └── admin/         Usuarios
 ```
 
-Rutas: `/explorar` (raíz redirige aquí) · `/arte` · `/hitos` · `/cultura` · `/datos`.
+Rutas públicas: `/explorar` (la raíz redirige aquí) · `/arte` · `/hitos` · `/cultura` ·
+`/datos` · `/cuenta/entrar` · `/cuenta/crear` · `/sin-permiso`.
+
+Rutas con sesión, con la guarda que cada una necesita:
+
+| Ruta                      | Guarda                | Qué hace                                            |
+| ------------------------- | --------------------- | --------------------------------------------------- |
+| `/cuenta`                 | `autenticadoGuard`    | Perfil de la cuenta                                  |
+| `/propuestas`             | `autenticadoGuard`    | Enviar una propuesta y ver las propias               |
+| `/lugares`                | `rolGuard('COLABORADOR')` | Crear, editar y eliminar lugares                 |
+| `/propuestas/moderar`     | `rolGuard('COLABORADOR')` | Aprobar o rechazar propuestas                    |
+| `/admin/usuarios`         | `rolGuard('ADMIN')`    | Cambiar roles y activar o desactivar cuentas          |
+
 Cualquier ruta desconocida redirige a `/explorar`.
+
+Dos reglas que explican por qué `/lugares` empieza en `COLABORADOR` y por qué el
+botón de eliminar desaparece para ese rol: replican los `@PreAuthorize` de
+`LugarController` (`COLABORADOR` para crear y actualizar, `ADMIN` para borrar).
+La interfaz no decide la seguridad, solo evita pintar botones que el servidor iba
+a rechazar. Lo que sí decide es cuándo pedir confirmación: el borrado no tiene
+vuelta atrás porque no hay baja lógica, y por eso exige un segundo clic.
 
 ## Guía de equivalencias React → Angular
 

@@ -141,6 +141,38 @@ export interface PaisDto {
 }
 
 /* -------------------------------------------------------------------------- */
+/*                      Altas y ediciones directas de lugares                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Cuerpo de `POST /api/places` y de `PUT /api/places/{id}`.
+ *
+ * `id` solo se rellena al crear. En una modificación lo impone la ruta y el
+ * backend lo ignora, así que mandarlo aparte solo daría pie a que la pantalla
+ * y la URL discrepen sin que nadie se entere; por eso aquí es `null` y quien
+ * llama decide.
+ *
+ * Los campos opcionales se envían como `null` en lugar de como cadena vacía:
+ * en el backend significan cosas distintas. Un `null` deja la columna a NULL,
+ * y una `""` guardaría un espacio en blanco que luego se pinta en la ficha del
+ * lugar.
+ */
+export interface LugarRequest {
+  /** Obligatorio solo en el alta: `^[a-z0-9_]+$` y 50 caracteres como máximo. */
+  id: string | null;
+  name: string;
+  /** Código ISO de dos letras. */
+  country: string;
+  lat: number;
+  lng: number;
+  category: CategoriaLugar;
+  icon: string | null;
+  period: string | null;
+  descText: string | null;
+  img: string | null;
+}
+
+/* -------------------------------------------------------------------------- */
 /*                          Autenticación y usuarios                           */
 /* -------------------------------------------------------------------------- */
 

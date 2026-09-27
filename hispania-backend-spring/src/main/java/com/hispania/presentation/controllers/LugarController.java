@@ -93,7 +93,7 @@ public class LugarController {
      * sus rutas.
      *
      * <p>Exige el rango de COLABORADOR. Un USUARIO no escribe directamente en
-     * {@code lugares}: propone, y otro lo aprueba. Si se permitiera, el moderation
+     * {@code lugares}: propone, y otro lo aprueba. Si se permitiera, la moderacion
      * seria opcional y no habria motivo para tener la cola de propuestas.
      */
     @PostMapping
@@ -131,9 +131,20 @@ public class LugarController {
      *
      * <p>Sin cuerpo: el 204 no debe llevar contenido, y devolver el objeto borrado
      * haria que el cliente creyera que sigue existiendo.
+     *
+     * <p>Exige ADMIN, y es el unico umbral de escritura que no coincide con el de la
+     * creacion. La razon es que el borrado no se puede deshacer: {@code lugares} no
+     * tiene columna de baja logica y ninguna clave foranea apunta a
+     * {@code lugares.id} —las series historicas cuelgan de {@code paises}—, de modo
+     * que el DELETE no dispara cascada ni error y la fila desaparece sin aviso. Crear
+     * y editar se corrigen; borrar, no.
+     *
+     * <p>Ademas cierra un recorrido de tres pasos que con el umbral anterior era
+     * posible: un COLABORADOR podia proponer un sitio, moderarlo el mismo y borrarlo,
+     * y se iba un lugar curado sin que nadie mas hubiera interveneido.
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("@jerarquia.puede(authentication, 'COLABORADOR')")
+    @PreAuthorize("@jerarquia.puede(authentication, 'ADMIN')")
     public ResponseEntity<Void> eliminar(@PathVariable String id) {
         lugarService.eliminar(id);
         return ResponseEntity.noContent().build();

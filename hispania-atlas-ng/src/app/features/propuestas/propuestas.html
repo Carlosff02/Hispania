@@ -5,33 +5,47 @@
     >
       Propuestas
     </h1>
-    <p class="mt-1 text-sm text-paper-dark">
-      Propón un lugar que falte en el atlas. Un colaborador lo revisará y, si lo aprueba,
-      aparecerá en el mapa.
-    </p>
+    <!-- El texto de cabeza cambia con el rol, porque la accion disponible no es la
+         misma. Decirle a un administrador que proponga algo que no puede proponer
+         seria una instruccion que no puede seguir. -->
+    @if (puedeProponer()) {
+      <p class="mt-1 text-sm text-paper-dark">
+        Propón un lugar que falte en el atlas. Un colaborador lo revisará y, si lo aprueba,
+        aparecerá en el mapa.
+      </p>
+    } @else {
+      <p class="mt-1 text-sm text-paper-dark">
+        Aquí está el historial de lo que has propuesto. Como tu rol puede crear lugares
+        directamente, no necesitas pasar por la cola de revisión.
+      </p>
+    }
 
     <!-- Pestañas. Son botones con `role="tab"` porque cambian de panel, y es
-         más honesto que parecer enlaces a otras páginas. -->
+         más honesto que parecer enlaces a otras páginas. La de enviar solo se
+         pinta si el rol puede proponer, así que para un administrador queda una
+         sola pestaña y el `role="tablist"` sigue siendo correcto. -->
     <div class="mt-6 flex gap-2 border-b border-brass/25" role="tablist">
-      <button
-        type="button"
-        role="tab"
-        [attr.aria-selected]="pestana() === 'enviar'"
-        (click)="pestana.set('enviar')"
-        class="px-4 py-2 text-sm font-bold tracking-[0.1em] uppercase border-b-2 -mb-px transition-colors"
-        [class]="
-          pestana() === 'enviar'
-            ? 'text-brass-light border-brass'
-            : 'text-paper-dark border-transparent hover:text-paper-light'
-        "
-      >
-        Proponer
-      </button>
+      @if (puedeProponer()) {
+        <button
+          type="button"
+          role="tab"
+          [attr.aria-selected]="pestana() === 'enviar'"
+          (click)="pestanaElegida.set('enviar')"
+          class="px-4 py-2 text-sm font-bold tracking-[0.1em] uppercase border-b-2 -mb-px transition-colors"
+          [class]="
+            pestana() === 'enviar'
+              ? 'text-brass-light border-brass'
+              : 'text-paper-dark border-transparent hover:text-paper-light'
+          "
+        >
+          Proponer
+        </button>
+      }
       <button
         type="button"
         role="tab"
         [attr.aria-selected]="pestana() === 'mias'"
-        (click)="pestana.set('mias')"
+        (click)="pestanaElegida.set('mias')"
         class="px-4 py-2 text-sm font-bold tracking-[0.1em] uppercase border-b-2 -mb-px transition-colors"
         [class]="
           pestana() === 'mias'
@@ -61,7 +75,7 @@
     }
 
     <!-- ================= PANEL: PROPONER ================= -->
-    @if (pestana() === 'enviar') {
+    @if (pestana() === 'enviar' && puedeProponer()) {
       <form [formGroup]="form" (ngSubmit)="enviar()" class="mt-6 space-y-4">
         <label class="block">
           <span class="block text-[11px] tracking-[0.2em] uppercase text-paper-dark mb-1.5"
@@ -204,13 +218,18 @@
           <p
             class="text-sm text-paper-dark border border-brass/25 border-dashed rounded-sm px-4 py-8 text-center"
           >
-            Todavía no has propuesto nada. <button
-              type="button"
-              (click)="pestana.set('enviar')"
-              class="text-brass-light hover:underline font-semibold"
-            >
-              Escribe la primera
-            </button>
+            @if (puedeProponer()) {
+              Todavía no has propuesto nada.
+              <button
+                type="button"
+                (click)="pestanaElegida.set('enviar')"
+                class="text-brass-light hover:underline font-semibold"
+              >
+                Escribe la primera
+              </button>
+            } @else {
+              Todavía no has propuesto nada.
+            }
           </p>
         } @else {
           <ul class="space-y-3">

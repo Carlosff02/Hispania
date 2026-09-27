@@ -10,9 +10,11 @@
  * una comparación. En el backend lo resuelve el método `incluye()` del enum
  * `Rol`; aquí se resuelve restando números.
  *
- * Ojo con el signo: `puede` compara `>=`. El `>` estricto aparece en la
- * administración de cuentas, donde es otra regla (solo se modifica a quien está
- * por debajo), y esa vive en el servicio de admin, no aquí.
+ * Ojo con el signo, porque aquí ya no hay un solo tipo de comparación. `puede`
+ * compara `>=`, `puedeModificar` usa `>` porque solo se toca a quien está por
+ * debajo, y `puedeProponer` va al revés, con `<=`, porque es la única regla que
+ * excluye en lugar de incluir. El sentido correcto depende de la regla, no del
+ * archivo.
  */
 import type { Rol } from '../models';
 
@@ -49,6 +51,27 @@ export function puede(actual: Rol | null, minimo: Rol): boolean {
 /** Rango numérico de un rol, útil para ordenar listados de administración. */
 export function rango(rol: Rol): number {
   return RANGO[rol];
+}
+
+/**
+ * ¿El actual puede proponer un lugar? Espejo de `Jerarquia.puedeProponer`.
+ *
+ * Es la única regla del módulo que **excluye** en lugar de incluir, y por eso
+ * no sale de `puede` con un mínimo. La idea es la de toda la cola de propuestas:
+ * es un rodeo para quien ya puede crear el lugar por la vía directa. Un ADMIN
+ * podría meterlo con un POST sin que nadie lo apruebe, así que proponer le
+ * añade un paso sin añadirle nada.
+ *
+ * El `COLABORADOR` sigue proposing aunque también pueda crear directamente: las
+ * dos vías son suyas, y nada obligaba a quitarle una.
+ *
+ * @param actual rol de quien intenta la acción; `null` si no hay sesión
+ */
+export function puedeProponer(actual: Rol | null): boolean {
+  if (actual === null) {
+    return false;
+  }
+  return RANGO[actual] <= RANGO.COLABORADOR;
 }
 
 /**

@@ -134,9 +134,71 @@ anterior, así que no hace falta enumerar permisos, solo comparar rangos.
 | Rol | Rango | Puede además de lo anterior |
 | --- | --- | --- |
 | `USUARIO` | 0 | ver el mapa, filtrar, **proponer** lugares |
-| `COLABORADOR` | 1 | crear, editar y borrar lugares; **aprobar o rechazar** propuestas |
-| `ADMIN` | 2 | promover a colaborador; editar países |
+| `COLABORADOR` | 1 | crear y editar lugares; **aprobar o rechazar** propuestas, incluidas las suyas |
+| `ADMIN` | 2 | **borrar** lugares; promover a colaborador; editar países |
 | `ADMIN_SISTEMA` | 3 | promover o degradar administradores del sistema; desactivar cuentas |
+
+La tabla no es solo "cada rol puede más": hay dos filas que rompen el patrón, y las
+dos a propósito.
+
+**Proponer deja de escalar hacia arriba.** `ADMIN` y `ADMIN_SISTEMA` **no**
+proponen. Pueden crear el lugar con `POST /api/places`, así que proponerlo sería un
+rodeo que además les impone esperar a que alguien lo apruebe. El `COLABORADOR` sí
+puede seguir proponiendo aunque también pueda crear directamente: las dos vías son
+suyas y nada obliga a quitarle una.
+
+Es la **única regla del módulo que excluye en lugar de incluir**, y por eso no se
+expresa con el `puede` de umbral sino con un método propio. El riesgo es concreto:
+escribiéndola como `puede(authentication, 'COLABORADOR')`, que es el patrón de las
+demás anotaciones, entrarían justo los dos roles que deben quedar fuera.
+
+**El borrado no lo hereda el colaborador.** Es el único umbral de escritura que no
+coincide con el de la creación, y sube a `ADMIN` porque el borrado no se puede
+deshacer: `lugares` no tiene columna de baja lógica y ninguna clave foránea apunta a
+`lugares.id` —las series históricas cuelgan de `paises`—, así que el `DELETE` no
+dispara cascada ni error y la fila se pierde sin aviso. Crear y editar se corrigen;
+borrar, no.
+
+Con el umbral anterior existía además un recorrido de tres pasos: un `COLABORADOR`
+podía proponer un sitio, moderarlo él mismo y borrarlo, y se iba un lugar curado sin
+que nadie más hubiera intervenido.
+
+### Dónde se hace esto en la interfaz
+
+Los tres endpoints de escritura de `LugarController` tienen pantalla propia en
+`hispania-atlas-ng`: la vista `/lugares` ("Gestionar lugares", en el menú de
+cuenta), con `rolGuard('COLABORADOR')` porque ese es el umbral del `POST` y del
+`PUT`. El botón de eliminar solo se pinta a partir de `ADMIN` y exige un segundo
+clic, ya que el `DELETE` no tiene vuelta atrás.
+
+Dos detalles de esa vista que evitan surprises en pruebas manuales:
+
+- El `id` es obligatorio en el alta y lo elige quien escribe, porque a diferencia
+  de las propuestas aquí no hay moderación que lo genere después. El formulario
+  ofrece un botón "Generar" que aplica el mismo criterio que `slug()` en
+  `PropuestaServiceImpl`, y avisa si el nombre no sirve.
+- Tras cada escritura la vista llama a `AppStore.recargarLugares()`, que vuelve a
+  pedir la lista al backend. Sin eso, `places$` está cacheado con `shareReplay` y
+  el alta se vería en la pantalla de gestión pero no en el mapa hasta recargar la
+  página.
+
+La comprobación de permisos sigue siendo la de aquí: la vista replica los
+umbrales para no pintar botones inútiles, y si alguien llama al endpoint a mano
+la respuesta es la misma de siempre, 403.
+
+### La moderación no se queda sin nadie
+
+`ADMIN` **sigue moderando** aunque no pueda proponer. Si se le quitara, dejaría de
+haber hueco cuando todavía no hay ningún colaborador dado de alta: las propuestas se
+acumularían sin que nadie las atendiera, y la única cuenta con permiso para crearlas
+sería justo la que no podría gestionarlas.
+
+La autorevisión, en cambio, se **acota** en vez de levantarse: se sigue bloqueando al
+`USUARIO`, que no puede crear lugares por la vía directa y por tanto no tiene otra
+manera de resolver la suya. Para `COLABORADOR`+ desaparece, y no es un agujero:
+auto-aprobarte no da ningún poder que no tuvieras ya creando ese mismo lugar. El caso
+que resuelve es real: alguien propuso como `USUARIO`, le ascendieron y su propuesta
+seguía pendiente sin que nadie pudiera cerrarla.
 
 Las tres reglas que protegen la administración, todas en
 `AdminUsuarioServiceImpl`:
@@ -160,21 +222,27 @@ Los permisos se expresan con el bean `Jerarquia`, que compara rangos:
 Es mejor que `hasAnyRole('COLABORADOR', 'ADMIN', 'ADMIN_SISTEMA')`, que obligaría a
 añadir el nuevo rol a cada anotación el día que se cree.
 
+Y para la regla que excluye, el método propio:
+
+```java
+@PreAuthorize("@jerarquia.puedeProponer(authentication)")
+```
+
 ### Endpoints de autenticación y propuestas
 
-| Método | Ruta | Mínimo | Respuesta |
+| Método | Ruta | Rol | Respuesta |
 | --- | --- | --- | --- |
 | POST | `/api/auth/registro` | público | 201 + token. Siempre nace como `USUARIO` |
 | POST | `/api/auth/login` | público | 200 + token. 401 si falla |
 | GET | `/api/auth/yo` | autenticado | La cuenta del token, con su rol |
-| POST | `/api/propuestas` | `USUARIO` | 201. Propone un lugar |
-| GET | `/api/propuestas/mias` | `USUARIO` | Historial del propio usuario |
-| GET | `/api/propuestas/pendientes` | `COLABORADOR` | Cola de moderación |
-| PUT | `/api/propuestas/{id}/revision` | `COLABORADOR` | Aprueba o rechaza. 400 si rechaza sin motivo |
-| GET | `/api/admin/usuarios` | `ADMIN` | Lista de cuentas, con filtro `?rol=` |
-| GET | `/api/admin/usuarios/{id}` | `ADMIN` | Una cuenta |
-| PUT | `/api/admin/usuarios/{id}/rol` | `ADMIN` | Cambia el rol, con las 3 reglas |
-| PATCH | `/api/admin/usuarios/{id}/estado` | `ADMIN` | Activa o desactiva. **No hay borrado** |
+| POST | `/api/propuestas` | `USUARIO` o `COLABORADOR` | 201. 403 para `ADMIN`+ |
+| GET | `/api/propuestas/mias` | autenticado | Historial del propio usuario |
+| GET | `/api/propuestas/pendientes` | `COLABORADOR`+ | Cola de moderación |
+| PUT | `/api/propuestas/{id}/revision` | `COLABORADOR`+ | Aprueba o rechaza, propia incluida. 400 si rechaza sin motivo |
+| GET | `/api/admin/usuarios` | `ADMIN`+ | Lista de cuentas, con filtro `?rol=` |
+| GET | `/api/admin/usuarios/{id}` | `ADMIN`+ | Una cuenta |
+| PUT | `/api/admin/usuarios/{id}/rol` | `ADMIN`+ | Cambia el rol, con las 3 reglas |
+| PATCH | `/api/admin/usuarios/{id}/estado` | `ADMIN`+ | Activa o desactiva. **No hay borrado** |
 
 **El registro no acepta un `rol`.** Aunque el JSON lo lleve, el DTO lo descarta:
 aceptarlo sería la vía más fácil para que cualquiera se autoproclamara
@@ -238,6 +306,8 @@ curl -X POST http://localhost:8080/api/places \
 ```
 
 Sin el `Authorization`, el `POST` devuelve 401. Con un token de `USUARIO`, 403.
+`DELETE /api/places/{id}` es la excepción: exige `ADMIN`, así que un `COLABORADOR`
+también recibe 403 ahí.
 
 ### Formato de error
 
@@ -336,20 +406,30 @@ perezoso por país y por colección.
 ./mvnw test
 ```
 
-66 pruebas, sin necesidad de base de datos:
+91 pruebas, sin necesidad de base de datos:
 
 | Clase | Qué cubre |
 | --- | --- |
 | `ResponseMapperTest` | Mapeo entidad → DTO, enums por nombre, `country` sincronizado con el país, métricas nulas |
 | `LugarServiceImplTest` | Reglas de negocio con repositorios simulados: duplicados, país inexistente, actualización parcial, agrupación en memoria |
 | `LugarControllerTest` | Slice de Spring MVC: rutas, forma del JSON, grupos de validación, cuerpo `ApiError` |
-| `JerarquiaTest` | La jerarquía de roles, incluidas las igualdades: dos `ADMIN` no se tocan, nadie delega lo que no tiene |
+| `JerarquiaTest` | La jerarquía de roles, incluidas las igualdades: dos `ADMIN` no se tocan, nadie delega lo que no tiene, y `puedeProponer` excluye en vez de incluir |
+| `PermisosDeEscrituraTest` | El umbral real de cada endpoint, deducido de su `@PreAuthorize` y evaluado con SpEL |
 | `AdminUsuarioServiceImplTest` | Las tres reglas de administración y el orden de las comprobaciones |
-| `PropuestaServiceImplTest` | Aprobar crea el lugar, rechazar exige motivo, nadie aprueba lo suyo, no se revisa dos veces |
+| `PropuestaServiceImplTest` | Aprobar crea el lugar, rechazar exige motivo, la autorevisión se acota a quien no escribe directo, no se revisa dos veces |
+| `PatrimonioApplicationTest` | El arranque aborta si faltan `DB_PASSWORD` o `JWT_SECRET`, en sus formas canónica y alternativa |
 
 En `JerarquiaTest` se cubren los casos de igualdad a propósito: un `>=` donde
 debería haber un `>` permitiría a un administrador degradar a otro, y el fallo no
 daría ninguna excepción, sino un agujero silencioso.
+
+`PermisosDeEscrituraTest` existe por el mismo motivo, aplicado a las anotaciones.
+La seguridad de método no se carga en `@WebMvcTest`, así que `LugarControllerTest`
+no puede comprobar los umbrales por HTTP; ahí se evalúa la expresión tal cual, con
+el bean `jerarquia` de verdad y para cada rol. Si el borrado vuelve a escribirse con
+`'COLABORADOR'` para "mantener el patrón" de la creación, no hay nada que falle en
+ningún otro test: la anotación sería válida para Spring, el endpoint respondería, y
+lo único que cambiaría es que un colaborador puede borrar un lugar curado.
 
 No hay pruebas de integración contra PostgreSQL porque requieren una base de datos o
 Docker. Si se quieren, el camino es Testcontainers con PostgreSQL

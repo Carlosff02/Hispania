@@ -20,6 +20,7 @@ import { Cultura } from './features/cultura/cultura';
 import { Datos } from './features/datos/datos';
 import { Milestones } from './features/hitos/milestones';
 import { ExplorarView } from './features/map/explorar-view';
+import { Lugares } from './features/lugares/lugares';
 import { Moderar } from './features/propuestas/moderar';
 import { Propuestas } from './features/propuestas/propuestas';
 import { autenticadoGuard, rolGuard } from './core/guards/auth.guard';
@@ -52,6 +53,13 @@ export const routes: Routes = [
   /* Administración. Con `rolGuard('ADMIN')`: si un colaborador apunta aquí,
      aterriza en /sin-permiso, que explica el 403 en vez de soltar un error seco. */
   { path: 'admin/usuarios', component: Usuarios, canActivate: [rolGuard('ADMIN')] },
+
+  /* Gestión directa de lugares. El mínimo es COLABORADOR, que es lo que exige
+     `POST /api/places` y `PUT /api/places/{id}`; borrar está en la misma pantalla
+     pero solo para ADMIN+, igual que en el backend. Un USUARIO que abra la ruta
+     a mano aterriza en /sin-permiso en vez de ver un formulario que el servidor
+     iba a rechazar. */
+  { path: 'lugares', component: Lugares, canActivate: [rolGuard('COLABORADOR')] },
 
   {
     path: 'cuenta',

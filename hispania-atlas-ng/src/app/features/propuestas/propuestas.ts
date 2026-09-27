@@ -8,12 +8,19 @@
  * del mismo encargo y el usuario alterna entre ellas constantemente. Lo que sí es
  * ruta aparte es la cola de moderación: esa la ven otras personas, tiene su
  * propia guard por rol y no tiene sentido que aparezca en la misma pantalla.
+ *
+ * La pestaña de enviar desaparece para ADMIN y ADMIN_SISTEMA, que no pueden
+ * proponer: ya crean el lugar directamente. Se oculta y no se bloquea, porque el
+ * backend es quien rechaza el envío; esto solo evita ofrecer un botón que iba a
+ * devolver un 403.
  */
 import { DatePipe } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
+import { puedeProponer } from '../../core/auth/roles';
 import { mensajeDeError } from '../../core/http/api-error';
+import { AuthService } from '../../core/services/auth.service';
 import { PropuestasService } from '../../core/services/propuestas.service';
 import type { CategoriaLugar, Propuesta } from '../../core/models';
 
@@ -53,12 +60,30 @@ type Pestana = 'enviar' | 'mias';
 export class Propuestas {
   private readonly fb = inject(FormBuilder);
   private readonly servicio = inject(PropuestasService);
+  private readonly auth = inject(AuthService);
 
   protected readonly categorias = CATEGORIAS;
-  protected readonly pestana = signal<Pestana>('enviar');
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly aviso = signal<string | null>(null);
+
+  /** Si el rol vigente puede entrar por la cola de propuestas o tiene que crear directo. */
+  protected readonly puedeProponer = computed(() => puedeProponer(this.auth.rol()));
+
+  /**
+   * La pestaña elegida, con un recorte para quien no puede proponer.
+   *
+   * Se resuelve en un `computed` y no escribiendo sobre la señal al detectar el rol
+   * porque el rol no se conoce al construir el componente: llega con la
+   * revalidación del token, después. Con el recorte, un administrador que entre
+   * con la pestaña de enviar por defecto aterriza en "Mis propuestas" solo, sin
+   * necesitar un efecto que compense el caso.
+   */
+  protected readonly pestanaElegida = signal<Pestana>('enviar');
+  protected readonly pestana = computed<Pestana>(() => {
+    const elegida = this.pestanaElegida();
+    return elegida === 'enviar' && !this.puedeProponer() ? 'mias' : elegida;
+  });
 
   protected readonly mias = signal<Propuesta[]>([]);
   protected readonly cargandoMias = signal(false);
@@ -136,7 +161,7 @@ export class Propuestas {
       });
       this.form.reset({ category: 'ARTE' });
       this.aviso.set('Propuesta enviada. Quedará pendiente hasta que un colaborador la revise.');
-      this.pestana.set('mias');
+      this.pestanaElegida.set('mias');
       await this.cargarMias();
     } catch (e) {
       this.error.set(mensajeDeError(e));

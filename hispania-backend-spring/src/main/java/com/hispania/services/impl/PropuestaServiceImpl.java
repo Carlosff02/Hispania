@@ -4,6 +4,7 @@ import com.hispania.exception.ForbiddenException;
 import com.hispania.exception.ResourceNotFoundException;
 import com.hispania.persistence.entity.EstadoPropuesta;
 import com.hispania.persistence.entity.PropuestaLugar;
+import com.hispania.persistence.entity.Rol;
 import com.hispania.persistence.entity.Usuario;
 import com.hispania.persistence.repository.PaisRepository;
 import com.hispania.persistence.repository.PropuestaLugarRepository;
@@ -113,6 +114,11 @@ public class PropuestaServiceImpl implements PropuestaService {
      * como aprobada, dentro de la misma transaccion. Si la inserta falla, la
      * propuesta sigue pendiente y el moderador reintenta; con el orden inverso, la
      * propuesta quedaria marcada como aprobada sin que existiera el lugar.
+     *
+     * <p>Quien puede revisar puede revisar tambien lo suyo. La unica excepcion es el
+     * USUARIO, que no puede crear lugares por la via directa y por tanto no puede
+     * resolver la suya de ninguna otra manera. El ADMIN mantiene la moderacion
+     * aunque no pueda proponer.
      */
     @Override
     @Transactional
@@ -125,15 +131,27 @@ public class PropuestaServiceImpl implements PropuestaService {
                     + propuesta.getEstado() + " y no se puede volver a revisar");
         }
 
-        // El autor no puede aprobarse a si mismo. Sin esta comprobacion, cualquier
-        // usuario con una cuenta se convertiria en colaborador sin que nadie lo
-        // decidiese, que es justo lo que la jerarquia de roles debe impedir.
-        if (propuesta.getPropuestoPor().getId().equals(revisorId)) {
-            throw new ForbiddenException("No puedes revisar una propuesta tuya");
-        }
-
         Usuario revisor = usuarios.findById(revisorId)
                 .orElseThrow(() -> ResourceNotFoundException.de("Usuario", revisorId));
+
+        /*
+         * La autorevision se bloquea solo a quien NO puede escribir en `lugares` por
+         * la via directa, que es el USUARIO. Para el resto no se bloquea, y no es un
+         * olvido: quien ya puede crear el lugar con POST /api/places no obtiene nada
+         * aprobandolo por aqui, asi que exigirle que lo apruebe otro no protege de
+         * nada, solo ralentiza. Por eso el caso de "alguien propuso como usuario, le
+         * ascendieron y ahora su propuesta seguia pendiente sin que nadie pudiera
+         * resolverla" tiene que poder resolverse solo.
+         *
+         * El rango se lee del usuario de la base y no del token a proposito: si le
+         * acabaran de degradar sin que el token hubiera caducado, aqui ya no se le
+         * reconoce el poder, que es el lado correcto en el que equivocarse.
+         */
+        boolean escribeDirecto = revisor.getRol().incluye(Rol.COLABORADOR);
+        if (!escribeDirecto && propuesta.getPropuestoPor().getId().equals(revisorId)) {
+            throw new ForbiddenException("No puedes revisar una propuesta tuya:"
+                    + " hace falta poder crear lugares directamente");
+        }
 
         switch (request.estado()) {
             case APROBADA -> aprobar(propuesta, revisor);

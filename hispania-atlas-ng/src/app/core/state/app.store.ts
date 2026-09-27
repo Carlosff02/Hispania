@@ -128,6 +128,36 @@ export class AppStore {
     return true;
   }
 
+  /**
+   * Vuelve a pedir los lugares al backend y sustituye la lista en memoria.
+   *
+   * Existe porque la carga del constructor ocurre UNA vez y `places$` está
+   * cacheado con `shareReplay`: sin esta acción, un alta o un borrado hecho en la
+   * pantalla de gestión no se verían hasta recargar la página entera.
+   *
+   * Devuelve la lista ya actualizada para que quien la llamó pueda seguir
+   * trabajando con ella sin tener que leer el signal otra vez. Si la petición
+   * falla, el error sube y la lista anterior se conserva intacta: es preferible
+   * mostrar datos viejos a dejar la pantalla vacía.
+   */
+  async recargarLugares(): Promise<Lugar[]> {
+    const lugares = await this.placesService.recargar();
+    this._places.set(lugares);
+
+    /*
+     * Si el lugar abierto era el que se acaba de borrar, el detalle se queda
+     * colgado en un objeto que ya no está en ninguna parte. Comprobarlo aquí, en
+     * el store y no en la vista, evita que la ficha siga mostrando un lugar
+     * inexistente mientras el panel del país ya no lo encuentre en la lista.
+     */
+    const abierto = this._place();
+    if (abierto !== null && !lugares.some((l) => l.id === abierto.id)) {
+      this._place.set(null);
+    }
+
+    return lugares;
+  }
+
   /* --------------------------- Carga inicial ---------------------------- */
 
   /**

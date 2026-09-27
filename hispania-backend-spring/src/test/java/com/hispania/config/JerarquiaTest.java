@@ -69,6 +69,18 @@ class JerarquiaTest {
         }
 
         @Test
+        @DisplayName("noSupera() incluye la igualdad: es el espejo exacto de supera()")
+        void noSuperaEsElEspejoDeSupera() {
+            for (Rol actual : Rol.values()) {
+                for (Rol otro : Rol.values()) {
+                    assertThat(actual.noSupera(otro))
+                            .as("%s no supera a %s", actual, otro)
+                            .isEqualTo(!actual.supera(otro));
+                }
+            }
+        }
+
+        @Test
         @DisplayName("la autoridad lleva el prefijo ROLE_ que espera Spring Security")
         void autoridad() {
             assertThat(Rol.ADMIN.getAuthority()).isEqualTo("ROLE_ADMIN");
@@ -113,6 +125,63 @@ class JerarquiaTest {
         @DisplayName("una sesion anonima no concede el minimo")
         void anonima() {
             assertThat(jerarquia.puede(anonimo(), "USUARIO")).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("puedeProponer(autenticacion)")
+    class PermisoParaProponer {
+
+        @Test
+        @DisplayName("un USUARIO propone: es justo lo que le diferencia de un visitante")
+        void usuarioPropone() {
+            assertThat(jerarquia.puedeProponer(como(Rol.USUARIO))).isTrue();
+        }
+
+        @Test
+        @DisplayName("un COLABORADOR tambien propone, y tambien puede crearlos directo")
+        void colaboradorPropone() {
+            // Es la frontera de la regla: el maximo autorizado. Si el dia que se anada
+            // un rol intermedio se cambia el corte, este es el test que se rompe.
+            assertThat(jerarquia.puedeProponer(como(Rol.COLABORADOR))).isTrue();
+        }
+
+        @Test
+        @DisplayName("un ADMIN NO propone: ya puede crear el lugar directamente")
+        void adminNoPropone() {
+            assertThat(jerarquia.puedeProponer(como(Rol.ADMIN))).isFalse();
+        }
+
+        @Test
+        @DisplayName("un ADMIN_SISTEMA tampoco propone")
+        void adminSistemaNoPropone() {
+            assertThat(jerarquia.puedeProponer(como(Rol.ADMIN_SISTEMA))).isFalse();
+        }
+
+        @Test
+        @DisplayName("la regla es el complemento exacto de exigir ADMIN, no un caso suelta")
+        void esLaInversaDelUmbralEquivocado() {
+            // Si alguien escribiera esta regla como `puede(authentication, 'ADMIN')`,
+            // que es el patron de todas las demas anotaciones, entrarian justo los dos
+            // roles que deben quedar fuera. Se fija aqui que la relacion es de
+            // complemento estricto: proponer es lo contrario de tener rango de ADMIN.
+            for (Rol rol : Rol.values()) {
+                assertThat(jerarquia.puedeProponer(como(rol)))
+                        .as("%s frente a puede(ADMIN)", rol)
+                        .isEqualTo(!jerarquia.puede(como(rol), "ADMIN"));
+            }
+        }
+
+        @Test
+        @DisplayName("sin sesion no se propone")
+        void sinSesion() {
+            assertThat(jerarquia.puedeProponer(null)).isFalse();
+        }
+
+        @Test
+        @DisplayName("una sesion anonima no propone")
+        void anonima() {
+            assertThat(jerarquia.puedeProponer(anonimo())).isFalse();
         }
     }
 

@@ -11,7 +11,7 @@
  * `COLABORADOR` no dice nada del sentido del `>=`, y ahí es donde suele colarse
  * el error.
  */
-import { ETIQUETA_ROL, puede, puedeAsignar, puedeModificar, rango } from './roles';
+import { ETIQUETA_ROL, puede, puedeAsignar, puedeModificar, puedeProponer, rango } from './roles';
 import type { Rol } from '../models';
 
 describe('jerarquía de roles', () => {
@@ -40,13 +40,42 @@ describe('jerarquía de roles', () => {
     expect(ordenado).toEqual(['USUARIO', 'COLABORADOR', 'ADMIN', 'ADMIN_SISTEMA']);
   });
 
-  it('etiqueta todos los roles, para que la interfaz no muestre el enum', () => {
-    for (const rol of ROLES) {
-      expect(ETIQUETA_ROL[rol]).toBeTruthy();
-      expect(ETIQUETA_ROL[rol]).not.toBe(rol);
-    }
+    it('etiqueta todos los roles, para que la interfaz no muestre el enum', () => {
+      for (const rol of ROLES) {
+        expect(ETIQUETA_ROL[rol]).toBeTruthy();
+        expect(ETIQUETA_ROL[rol]).not.toBe(rol);
+      }
+    });
+
+    describe('puedeProponer', () => {
+      it('deja proponer a USUARIO y a COLABORADOR', () => {
+        expect(puedeProponer('USUARIO')).toBe(true);
+        // COLABORADOR es la frontera: es el rango más alto que sigue pudiendo proponer.
+        expect(puedeProponer('COLABORADOR')).toBe(true);
+      });
+
+      it('no deja proponer a los administradores, que ya crean directamente', () => {
+        expect(puedeProponer('ADMIN')).toBe(false);
+        expect(puedeProponer('ADMIN_SISTEMA')).toBe(false);
+      });
+
+      it('es el complemento exacto de tener rango de ADMIN, no un ">=" mal orientado', () => {
+        /*
+         * Si esta regla se escribiera como `puede(..., 'COLABORADOR')`, que es el
+         * patrón de las otras, ADMIN y ADMIN_SISTEMA entrarían: exactamente los dos
+         * que deben quedar fuera. Se ata la relación para que el error se vea.
+         */
+        for (const rol of ROLES) {
+          expect(puedeProponer(rol)).toBe(!puede(rol, 'ADMIN'));
+        }
+      });
+
+      it('no propone sin sesión', () => {
+        expect(puedeProponer(null)).toBe(false);
+      });
+    });
   });
-});
+
 
 describe('reglas de administración de cuentas', () => {
   const YO = 1;

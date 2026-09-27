@@ -44,10 +44,14 @@ public class PropuestaController {
     /**
      * {@code POST /api/propuestas} -&gt; 201.
      *
-     * <p>Lo puede hacer cualquier usuario autenticado, incluido el rango mas bajo:
-     * proponer es precisamente lo que distingue a un USUARIO de un visitante.
+     * <p>Para USUARIO y COLABORADOR. El ADMIN queda fuera a proposito: puede crear el
+     * lugar directamente con {@code POST /api/places}, asi que proponerlo seria un
+     * rodeo que ademas le impone esperar a que otra persona lo apruebe. La regla se
+     * apoya en {@code puedeProponer} y no en {@code puede}, porque es la unica que
+     * excluye por rango en vez de exigir un minimo.
      */
     @PostMapping
+    @PreAuthorize("@jerarquia.puedeProponer(authentication)")
     public ResponseEntity<PropuestaResponse> proponer(@Valid @RequestBody PropuestaRequest request,
                                                       @AuthenticationPrincipal Jwt jwt) {
         PropuestaResponse creada = propuestaService.proponer(request, usuarioId(jwt));
@@ -91,6 +95,15 @@ public class PropuestaController {
      * <p>Es un PUT y no un PATCH porque la operacion es atomica: la propuesta pasa
      * a APROBADA o RECHAZADA en un solo paso y no existe un estado intermedio
      * guardable.
+     *
+     * <p>El ADMIN mantiene la capacidad de moderar aunque no pueda proponer. Si se
+     * le quitara, dejaria de haber hueco cuando no hay ningun colaborador dado de
+     * alta: las propuestas se acumularian sin que nadie las atendiera, y la unica
+     * cuenta con permiso para crearlas seria justo la que no podria gestionarlas.
+     *
+     * <p>Quien puede revisar puede revisar tambien lo suyo. La excepcion vive en el
+     * servicio y se aplica solo a quien no puede escribir en {@code lugares} por la
+     * via directa, que es el USUARIO.
      */
     @PutMapping("/{id}/revision")
     @PreAuthorize("@jerarquia.puede(authentication, 'COLABORADOR')")
