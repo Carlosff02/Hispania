@@ -10,12 +10,11 @@
  * Java a la que corresponde.
  */
 import { Component, inject, signal } from '@angular/core';
-import { ReactiveFormsModule, Validators } from '@angular/forms';
-import { FormBuilder } from '@angular/forms';
+import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
+import { mensajeDeError } from '../../core/http/api-error';
 import { AuthService } from '../../core/services/auth.service';
-import { mensajeDeError } from './login';
 
 @Component({
   selector: 'app-registro',

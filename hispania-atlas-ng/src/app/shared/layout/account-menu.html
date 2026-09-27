@@ -34,10 +34,22 @@
           </p>
         </div>
 
+        <nav class="py-1" aria-label="Secciones de cuenta">
+          @for (item of items(); track item.path) {
+            <a
+              [routerLink]="item.path"
+              (click)="alNavegar()"
+              class="block px-4 py-2 text-xs font-bold tracking-[0.1em] uppercase text-paper-dark hover:text-brass-light hover:bg-vicblue-dark transition-colors"
+            >
+              {{ item.label }}
+            </a>
+          }
+        </nav>
+
         <button
           type="button"
           (click)="salir()"
-          class="w-full text-left px-4 py-2.5 text-xs font-bold tracking-[0.1em] uppercase text-paper-dark hover:text-brass-light hover:bg-vicblue-dark transition-colors"
+          class="w-full text-left px-4 py-2.5 text-xs font-bold tracking-[0.1em] uppercase text-paper-dark hover:text-red-200 hover:bg-vicblue-dark border-t border-brass/20 transition-colors"
         >
           Cerrar sesión
         </button>

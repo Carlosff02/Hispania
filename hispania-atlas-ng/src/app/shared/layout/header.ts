@@ -13,6 +13,15 @@ interface NavItem {
   label: string;
 }
 
+/**
+ * Navegación de contenido: solo lo público.
+ *
+ * Las secciones con sesión (propuestas, moderación, administración) NO van
+ * aquí, sino dentro del menú de cuenta. Dos motivos: esta barra es para
+ * recorrer el atlas, y mezclar una zona de gestión con "Bellas Artes" o
+ * "Economía" mezcla dos cosas de naturaleza distinta; y un enlace que aparece y
+ * desaparece según el rol hace que la barra cambie de ancho entre sesiones.
+ */
 const NAV_ITEMS: NavItem[] = [
   { path: '/explorar', label: 'Cartografía' },
   { path: '/arte', label: 'Bellas Artes' },

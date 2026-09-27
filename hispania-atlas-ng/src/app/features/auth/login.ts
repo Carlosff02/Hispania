@@ -15,11 +15,10 @@
  */
 import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
+import { mensajeDeError } from '../../core/http/api-error';
 import { AuthService } from '../../core/services/auth.service';
-import type { ApiError } from '../../core/models';
 
 @Component({
   selector: 'app-login',
@@ -69,27 +68,4 @@ export class Login {
   private destino(): string {
     return this.route.snapshot.queryParamMap.get('returnUrl') ?? '/explorar';
   }
-}
-
-/**
- * Traduce la respuesta de error del backend a un mensaje presentable.
- *
- * El backend devuelve un `ApiError` con `message` y, cuando es un fallo de
- * validación, `details` con el campo concreto. Se prioriza `message`, que ya
- * viene redactado, y se cae a los detalles si faltara.
- */
-export function mensajeDeError(e: unknown): string {
-  if (!(e instanceof HttpErrorResponse)) {
-    return 'No se pudo completar la operación.';
-  }
-  const cuerpo = e.error as ApiError | null;
-  if (cuerpo?.message) {
-    return cuerpo.message;
-  }
-  if (cuerpo?.details?.length) {
-    return cuerpo.details.map((d) => `${d.field}: ${d.message}`).join(' · ');
-  }
-  return e.status === 0
-    ? 'No hay conexión con el servidor.'
-    : `Error ${e.status} al procesar la solicitud.`;
 }

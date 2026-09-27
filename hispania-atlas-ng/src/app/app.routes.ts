@@ -14,12 +14,15 @@ import type { Routes } from '@angular/router';
 import { Login } from './features/auth/login';
 import { Registro } from './features/auth/registro';
 import { SinPermiso } from './features/auth/sin-permiso';
+import { Usuarios } from './features/admin/usuarios';
 import { ArteGrid } from './features/arte/arte-grid';
 import { Cultura } from './features/cultura/cultura';
 import { Datos } from './features/datos/datos';
 import { Milestones } from './features/hitos/milestones';
 import { ExplorarView } from './features/map/explorar-view';
-import { autenticadoGuard } from './core/guards/auth.guard';
+import { Moderar } from './features/propuestas/moderar';
+import { Propuestas } from './features/propuestas/propuestas';
+import { autenticadoGuard, rolGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'explorar' },
@@ -36,8 +39,20 @@ export const routes: Routes = [
   { path: 'cuenta/crear', component: Registro },
   { path: 'sin-permiso', component: SinPermiso },
 
-  /* Zonas con sesión. De momento solo 'cuenta', que agrupa lo que se pueda
-     añadir después (las propuestas y la administración se montan aquí). */
+  /* Propuestas. Cualquiera con sesión puede proponer, así que esta vista solo
+     exige estar autenticado. La moderación lleva `rolGuard` y va en ruta aparte
+     porque la ve otra persona y no tiene sentido mezclarla con el propio envío. */
+  { path: 'propuestas', component: Propuestas, canActivate: [autenticadoGuard] },
+  {
+    path: 'propuestas/moderar',
+    component: Moderar,
+    canActivate: [rolGuard('COLABORADOR')],
+  },
+
+  /* Administración. Con `rolGuard('ADMIN')`: si un colaborador apunta aquí,
+     aterriza en /sin-permiso, que explica el 403 en vez de soltar un error seco. */
+  { path: 'admin/usuarios', component: Usuarios, canActivate: [rolGuard('ADMIN')] },
+
   {
     path: 'cuenta',
     canActivate: [autenticadoGuard],

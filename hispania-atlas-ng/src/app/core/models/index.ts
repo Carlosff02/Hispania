@@ -190,6 +190,69 @@ export interface RegistroRequest {
 }
 
 /* -------------------------------------------------------------------------- */
+/*                            Propuestas de lugares                            */
+/* -------------------------------------------------------------------------- */
+
+/** Estado de una propuesta, tal como lo devuelve `PropuestaResponse`. */
+export type EstadoPropuesta = 'PENDIENTE' | 'APROBADA' | 'RECHAZADA';
+
+/**
+ * Lo que un moderador puede *enviar*, que no es lo mismo que lo que la entidad
+ * guarda.
+ *
+ * El backend tiene dos enumeraciones a propósito: la de la entidad admite
+ * `PENDIENTE` y la del request de revisión solo `APROBADA` y `RECHAZADA`. Con
+ * un solo tipo, un cliente podría "revisar" una propuesta y dejarla pendiente.
+ * Aquí se refleja esa misma separación.
+ */
+export type DecisionRevision = Extract<EstadoPropuesta, 'APROBADA' | 'RECHAZADA'>;
+
+export interface Propuesta {
+  id: number;
+  nombre: string;
+  country: string;
+  lat: number;
+  lng: number;
+  category: CategoriaLugar;
+  icon: string | null;
+  period: string | null;
+  descText: string | null;
+  img: string | null;
+  estado: EstadoPropuesta;
+  propuestoPorId: number;
+  propuestoPor: string;
+  revisadoPor: string | null;
+  revisadoAt: string | null;
+  motivoRechazo: string | null;
+  createdAt: string;
+}
+
+/**
+ * Alta de una propuesta.
+ *
+ * No lleva `id` del lugar, y no es un descuido: se genera al aprobar, cuando ya
+ * se puede comprobar que no choca con ninguno existente. Pedirlo aquí solo
+ * generaría colisiones que el usuario no puede ver.
+ */
+export interface PropuestaRequest {
+  nombre: string;
+  country: string;
+  lat: number;
+  lng: number;
+  category: CategoriaLugar;
+  icon: string | null;
+  period: string | null;
+  descText: string | null;
+  img: string | null;
+}
+
+export interface RevisionRequest {
+  estado: DecisionRevision;
+  /** Obligatorio solo si `estado` es `RECHAZADA`; el backend lo exige. */
+  motivo: string | null;
+}
+
+/* -------------------------------------------------------------------------- */
 /*                                Errores de API                               */
 /* -------------------------------------------------------------------------- */
 

@@ -9,11 +9,38 @@
  * sin arrastrar la navegación entera. La cabecera le pasa el token y el estado
  * del desplegable; el menú no necesita conocer la barra de navegación.
  */
-import { Component, ElementRef, inject, output, signal } from '@angular/core';
+import { Component, ElementRef, computed, inject, output, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
 import { AuthService } from '../../core/services/auth.service';
-import { ETIQUETA_ROL } from '../../core/auth/roles';
+import { ETIQUETA_ROL, puede } from '../../core/auth/roles';
+import type { Rol } from '../../core/models';
+
+interface MenuItem {
+  path: string;
+  label: string;
+  /** Rol mínimo para que la opción aparezca. `null` es visible para cualquiera. */
+  minimo: Rol | null;
+}
+
+/**
+ * Secciones con sesión.
+ *
+ * Van aquí y no en la barra de navegación principal, porque la barra es para
+ * recorrer el atlas: mezclar "Moderar propuestas" con "Bellas Artes" pone dos
+ * cosas de naturaleza distinta en el mismo sitio, y encima un enlace que
+ * aparece según el rol hace que la barra cambie entre sesiones.
+ *
+ * Ocultar una opción es comodidad, no seguridad: el backend comprueba el rol en
+ * cada petición, y la ruta lleva su propia `rolGuard`. Alguien que la abra a
+ * mano desde la consola llega a `/sin-permiso`, no a los datos.
+ */
+const MENU_ITEMS: MenuItem[] = [
+  { path: '/cuenta', label: 'Mi cuenta', minimo: null },
+  { path: '/propuestas', label: 'Mis propuestas', minimo: null },
+  { path: '/propuestas/moderar', label: 'Moderar propuestas', minimo: 'COLABORADOR' },
+  { path: '/admin/usuarios', label: 'Administrar cuentas', minimo: 'ADMIN' },
+];
 
 @Component({
   selector: 'app-account-menu',
@@ -38,6 +65,18 @@ export class AccountMenu {
 
   protected readonly autenticado = this.auth.autenticado;
   protected readonly usuario = this.auth.usuario;
+
+  /**
+   * Opciones visibles para el rol actual.
+   *
+   * Se calcula con `computed` porque el rol cambia sin recargar: quien inicia
+   * sesión y es colaborador ve aparecer "Moderar propuestas" en ese momento. Con
+   * un array fijo en el constructor, el menú saldría vacío hasta recargar.
+   */
+  protected readonly items = computed(() => {
+    const rol = this.auth.rol();
+    return MENU_ITEMS.filter((item) => item.minimo === null || puede(rol, item.minimo));
+  });
 
   protected alternar(): void {
     this.abierto.update((v) => !v);

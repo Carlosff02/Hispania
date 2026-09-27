@@ -50,3 +50,48 @@ export function puede(actual: Rol | null, minimo: Rol): boolean {
 export function rango(rol: Rol): number {
   return RANGO[rol];
 }
+
+/**
+ * ¿El actual puede modificar a `objetivo`? Espejo de `Jerarquia.puedeModificar`.
+ *
+ * Dos condiciones, y las dos importan:
+ *
+ *  - Rango **estrictamente** superior. Aquí es donde un `>=` colaría un
+ *    agujero, porque dejaría a dos administradores modificándose entre sí. Es
+ *    el error que fija el test de igualdad.
+ *  - Que no sea uno mismo. Sin esto, un administrador se degradaría a sí mismo
+ *    con un clic y se quedaría sin permisos.
+ *
+ * @param actual   rol de quien intenta la acción; `null` si no hay sesión
+ * @param objetivo rol de la cuenta que se quiere afectar
+ * @param mismoId  id de la cuenta de quien actúa, para detectar el caso
+ *                  "me estoy modificando a mí"; `null` si se desconoce
+ * @param objetivoId id de la cuenta afectada
+ */
+export function puedeModificar(actual: Rol | null, objetivo: Rol, mismoId: number | null, objetivoId: number): boolean {
+  if (actual === null || mismoId === null) {
+    return false;
+  }
+  if (mismoId === objetivoId) {
+    return false;
+  }
+  return RANGO[actual] > RANGO[objetivo];
+}
+
+/**
+ * ¿El actual puede asignar `nuevo`? Espejo de `Jerarquia.puedeAsignar`.
+ *
+ * Es "menor o igual", a diferencia del caso anterior, y el matiz es
+ * intencionado: un `ADMIN` sí puede crear otro `ADMIN`. Lo que no puede es
+ * crear un `ADMIN_SISTEMA`, porque Eso sería delegar un poder que no tiene y
+ * convertir una cuenta intermedia en un escalón hacia el control total.
+ */
+export function puedeAsignar(actual: Rol | null, nuevo: Rol): boolean {
+  if (actual === null) {
+    return false;
+  }
+  return RANGO[nuevo] <= RANGO[actual];
+}
+
+/** Todos los roles, de menor a mayor, para pintar un desplegable. */
+export const ROLES: readonly Rol[] = ['USUARIO', 'COLABORADOR', 'ADMIN', 'ADMIN_SISTEMA'];
