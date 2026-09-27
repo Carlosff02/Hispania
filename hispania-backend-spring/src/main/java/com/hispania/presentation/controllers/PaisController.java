@@ -4,6 +4,7 @@ import com.hispania.presentation.dto.request.PaisRequest;
 import com.hispania.presentation.dto.response.PaisResponse;
 import com.hispania.services.interfaces.PaisService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -62,8 +63,13 @@ public class PaisController {
      *
      * <p>Si el codigo ya existe, el servicio lanza {@code DuplicateResourceException} y
      * el manejador global lo traduce a 409, no a 500.
+     *
+     * <p>Exige el rango de ADMIN, un nivel por encima del de los lugares. Anadir un
+     * pais es una decision estructural del proyecto y arrastra su serie historica;
+     * no le corresponde a un colaborador.
      */
     @PostMapping
+    @PreAuthorize("@jerarquia.puede(authentication, 'ADMIN')")
     public ResponseEntity<PaisResponse> crear(
             @Validated(PaisRequest.OnCreate.class) @RequestBody PaisRequest request) {
         PaisResponse creado = paisService.crear(request);
@@ -78,6 +84,7 @@ public class PaisController {
 
     /** {@code PUT /api/countries/{code}}. El {@code code} lo impone la ruta. */
     @PutMapping("/{code}")
+    @PreAuthorize("@jerarquia.puede(authentication, 'ADMIN')")
     public ResponseEntity<PaisResponse> actualizar(@PathVariable String code,
                                                    @Validated(PaisRequest.OnUpdate.class)
                                                    @RequestBody PaisRequest request) {
@@ -92,6 +99,7 @@ public class PaisController {
      * sentido sin su pais.
      */
     @DeleteMapping("/{code}")
+    @PreAuthorize("@jerarquia.puede(authentication, 'ADMIN')")
     public ResponseEntity<Void> eliminar(@PathVariable String code) {
         paisService.eliminar(code);
         return ResponseEntity.noContent().build();

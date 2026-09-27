@@ -18,10 +18,16 @@ public class ResourceNotFoundException extends RuntimeException {
     /**
      * Atajo para el caso mas comun: buscar por clave primaria.
      *
+     * <p>El identificador es {@code Object} y no {@code String} porque conviven
+     * claves de texto ({@code "machu"}, el codigo ISO del pais) y numericas (el
+     * id de un usuario o de una propuesta). Tiparlo como texto obligaria a
+     * envolver los numeros con {@code String.valueOf()} en cada llamada, o a
+     * cambiar la firma de todos los {@code throws} de las interfaces.
+     *
      * @param recurso nombre del recurso, por ejemplo {@code "Pais"}
      * @param clave   valor buscado
      */
-    public static ResourceNotFoundException de(String recurso, String clave) {
+    public static ResourceNotFoundException de(String recurso, Object clave) {
         return new ResourceNotFoundException(recurso + " con identificador '" + clave + "' no encontrado");
     }
 }

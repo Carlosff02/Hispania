@@ -8,6 +8,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -51,6 +52,56 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleDuplicate(DuplicateResourceException ex,
                                                      HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, ex.getMessage(), request, List.of());
+    }
+
+    /**
+     * 401: el login no ha sido valido.
+     *
+     * <p>Se registra aparte y no como parte del 500 generico porque un fallo de
+     * credenciales es un evento esperado, no un error del servidor: si acabase
+     * en el log de errores aparecerian volumenes de trazas por intentos fallidos.
+     */
+    @ExceptionHandler(CredencialesInvalidasException.class)
+    public ResponseEntity<ApiError> handleCredenciales(CredencialesInvalidasException ex,
+                                                        HttpServletRequest request) {
+        return build(HttpStatus.UNAUTHORIZED, ex.getMessage(), request, List.of());
+    }
+
+    /**
+     * 400: el peticion es incoherente, pero no por el formato del JSON.
+     *
+     * <p>Cubre los argumentos que el servicio rechaza tras validar el cuerpo: por
+     * ejemplo, un rechazo de propuesta sin motivo. Sin este handler, esos casos
+     * caerian en el {@code Exception} generico de abajo y responderian 500, que
+     * dice "fallo del servidor" cuando en realidad el cliente tiene que corregir
+     * un campo. Es el error mas desconcertante que se puede devolver.
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException ex,
+                                                          HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request, List.of());
+    }
+
+    /**
+     * 403: el rol no da para esta operacion.
+     *
+     * <p>Spring Security lanza su propio {@code AccessDeniedException} cuando es
+     * la cadena de filtros la que rechaza, y {@code @PreAuthorize} produce otra
+     * excepcion distinta. Se mapean las tres al mismo cuerpo, para que el cliente
+     * solo tenga que parsear un formato de error.
+     */
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiError> handleForbidden(ForbiddenException ex,
+                                                     HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, ex.getMessage(), request, List.of());
+    }
+
+    /** 403: variante que lanza Spring Security. */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiError> handleAccessDenied(AccessDeniedException ex,
+                                                        HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN,
+                "No tienes permisos para esta operacion", request, List.of());
     }
 
     /**

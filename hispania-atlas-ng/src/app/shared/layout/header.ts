@@ -5,6 +5,7 @@ import { LucideCompass } from '@lucide/angular';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 
+import { AccountMenu } from './account-menu';
 import { SearchBox } from './search-box';
 
 interface NavItem {
@@ -35,7 +36,7 @@ const NAV_ITEMS: NavItem[] = [
  */
 @Component({
   selector: 'app-header',
-  imports: [RouterLink, NgClass, LucideCompass, SearchBox],
+  imports: [RouterLink, NgClass, LucideCompass, SearchBox, AccountMenu],
   templateUrl: './header.html',
 })
 export class Header {

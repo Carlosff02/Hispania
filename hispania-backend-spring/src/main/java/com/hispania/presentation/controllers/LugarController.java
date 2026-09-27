@@ -5,6 +5,7 @@ import com.hispania.presentation.dto.request.LugarRequest;
 import com.hispania.presentation.dto.response.LugarResponse;
 import com.hispania.services.interfaces.LugarService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -90,8 +91,13 @@ public class LugarController {
      * <p>El grupo {@code OnCreate} exige el {@code id} en el cuerpo. En un alta el
      * cliente elige la clave, porque es una cadena legible que el frontend ya usa en
      * sus rutas.
+     *
+     * <p>Exige el rango de COLABORADOR. Un USUARIO no escribe directamente en
+     * {@code lugares}: propone, y otro lo aprueba. Si se permitiera, el moderation
+     * seria opcional y no habria motivo para tener la cola de propuestas.
      */
     @PostMapping
+    @PreAuthorize("@jerarquia.puede(authentication, 'COLABORADOR')")
     public ResponseEntity<LugarResponse> crear(
             @Validated(LugarRequest.OnCreate.class) @RequestBody LugarRequest request) {
         LugarResponse creado = lugarService.crear(request);
@@ -113,6 +119,7 @@ public class LugarController {
      * borraria la fila y crearia otra.
      */
     @PutMapping("/{id}")
+    @PreAuthorize("@jerarquia.puede(authentication, 'COLABORADOR')")
     public ResponseEntity<LugarResponse> actualizar(@PathVariable String id,
                                                     @Validated(LugarRequest.OnUpdate.class)
                                                     @RequestBody LugarRequest request) {
@@ -126,6 +133,7 @@ public class LugarController {
      * haria que el cliente creyera que sigue existiendo.
      */
     @DeleteMapping("/{id}")
+    @PreAuthorize("@jerarquia.puede(authentication, 'COLABORADOR')")
     public ResponseEntity<Void> eliminar(@PathVariable String id) {
         lugarService.eliminar(id);
         return ResponseEntity.noContent().build();

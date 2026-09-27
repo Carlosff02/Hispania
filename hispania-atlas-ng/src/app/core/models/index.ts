@@ -139,3 +139,73 @@ export interface PaisDto {
   seriesHistoricas: SerieDto[];
   lugares: LugarDto[];
 }
+
+/* -------------------------------------------------------------------------- */
+/*                          Autenticación y usuarios                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Roles del backend, en el mismo orden que la enumeración Java. La jerarquía
+ * (qué rol incluye a cuál) NO se deduce de este tipo: vive en
+ * `core/auth/roles.ts`, que es el espejo frontend de la clase `Jerarquia`.
+ */
+export type Rol = 'USUARIO' | 'COLABORADOR' | 'ADMIN' | 'ADMIN_SISTEMA';
+
+export interface Usuario {
+  id: number;
+  username: string;
+  email: string;
+  nombre: string | null;
+  rol: Rol;
+  activo: boolean;
+  /** ISO-8601. Llega como `Instant`, o sea una cadena, no un `Date`. */
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Respuesta de login y de registro: el token y ya los datos de la cuenta. */
+export interface AuthResponse {
+  token: string;
+  tokenType: string;
+  /** Segundos de validez restantes. */
+  expiresIn: number;
+  usuario: Usuario;
+}
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+/**
+ * Alta de cuenta. No lleva `rol` a propósito: el registro es público y el
+ * backend descarta ese campo aunque llegue, para que nadie se autoproclame
+ * administrador.
+ */
+export interface RegistroRequest {
+  username: string;
+  email: string;
+  password: string;
+  nombre: string | null;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                Errores de API                               */
+/* -------------------------------------------------------------------------- */
+
+/** Un campo concreto que falló la validación. */
+export interface DetalleError {
+  field: string;
+  message: string;
+}
+
+/** Formato único de error del backend; ver `GlobalExceptionHandler`. */
+export interface ApiError {
+  timestamp?: string;
+  status?: number;
+  error?: string;
+  message: string;
+  path?: string;
+  details?: DetalleError[];
+}
+

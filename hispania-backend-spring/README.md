@@ -87,22 +87,32 @@ de datos sin que se rompa la capa HTTP, y al revés.
 psql -U postgres -c "CREATE DATABASE hispania_db;"
 
 # 2. Credenciales — OBLIGATORIO
-#    La contraseña NO tiene valor por defecto en application.properties, así que
-#    sin esta variable la aplicación aborta al arrancar. Es deliberado: un
-#    default acabaría escrito en el historial de git.
+#    Ni la contraseña de la base ni la clave del JWT tienen valor por defecto en
+#    application.properties, así que sin ellas la aplicación aborta al arrancar.
+#    Es deliberado: un default acabaría escrito en el historial de git.
 copy .env.example .env
 #    En PowerShell:
 #      $env:DB_URL       = "jdbc:postgresql://localhost:5432/hispania_db"
 #      $env:DB_USER      = "postgres"
 #      $env:DB_PASSWORD  = "tu-contrasena-real"
+#      $env:JWT_SECRET   = "clave-aleatoria-de-openssl-rand-base64-48"
 
-# 3. Arrancar
+# 3. Primer administrador del sistema (opcional pero recomendado)
+#    La migración NO siembra ninguna cuenta. Si defines estas tres variables y no
+#    hay ningún ADMIN_SISTEMA, el arranque crea la cuenta inicial. Luego puedes
+#    vaciarlas: la cuenta ya existe y no se vuelve a crear.
+#      $env:ADMIN_USERNAME = "root"
+#      $env:ADMIN_EMAIL    = "root@localhost"
+#      $env:ADMIN_PASSWORD = "tu-contrasena-fuerte"
+
+# 4. Arrancar
 ./mvnw spring-boot:run          # http://localhost:8080
 ```
 
 `DB_URL` y `DB_USER` sí tienen default (`localhost:5432/hispania_db` y `postgres`),
-porque no son secretos. Solo la contraseña es obligatoria, y si falta la aplicación
-aborta con este mensaje en lugar de con un error de PostgreSQL:
+porque no son secretos. `DB_PASSWORD` y `JWT_SECRET` son obligatorias, y si faltan
+la aplicación aborta al arrancar con un mensaje que dice cuál falta, en lugar de
+dejar que fallo más tarde y en un sitio menos evidente:
 
 ```
 Falta la variable de entorno DB_PASSWORD.
@@ -110,8 +120,86 @@ Falta la variable de entorno DB_PASSWORD.
   - En PowerShell:           $env:DB_PASSWORD = "<tu contrasena>"
 ```
 
+Sin `JWT_SECRET` el síntoma sería peor: la aplicación arrancaría y todos los
+inicios de sesión fallarían, porque ningún token se podría firmar.
+
 Flyway crea el esquema y aplica las migraciones al arrancar. No hay que importar
 nada a mano.
+
+## Usuarios, roles y propuestas
+
+La jerarquía de permisos es **lineal**: cada rol incluye todo lo que puede el
+anterior, así que no hace falta enumerar permisos, solo comparar rangos.
+
+| Rol | Rango | Puede además de lo anterior |
+| --- | --- | --- |
+| `USUARIO` | 0 | ver el mapa, filtrar, **proponer** lugares |
+| `COLABORADOR` | 1 | crear, editar y borrar lugares; **aprobar o rechazar** propuestas |
+| `ADMIN` | 2 | promover a colaborador; editar países |
+| `ADMIN_SISTEMA` | 3 | promover o degradar administradores del sistema; desactivar cuentas |
+
+Las tres reglas que protegen la administración, todas en
+`AdminUsuarioServiceImpl`:
+
+1. **Rango superior.** Solo se modifica a quien tiene un rango menor. Por eso dos
+   `ADMIN` no pueden tocarse entre sí.
+2. **No delegar un poder que no se tiene.** Un `ADMIN` no puede promover a
+   `ADMIN_SISTEMA`; si pudiera, bastaría con comprometer una cuenta intermedia.
+3. **Nadie se modifica a sí mismo.** Evita degradaciones accidentales.
+
+Ninguna de las tres se resuelve solo con `@PreAuthorize`: son relaciones entre dos
+cuentas, no permisos sobre una ruta. La anotación se queda con la puerta
+("esto exige `ADMIN`") y el servicio decide el resto.
+
+Los permisos se expresan con el bean `Jerarquia`, que compara rangos:
+
+```java
+@PreAuthorize("@jerarquia.puede(authentication, 'COLABORADOR')")
+```
+
+Es mejor que `hasAnyRole('COLABORADOR', 'ADMIN', 'ADMIN_SISTEMA')`, que obligaría a
+añadir el nuevo rol a cada anotación el día que se cree.
+
+### Endpoints de autenticación y propuestas
+
+| Método | Ruta | Mínimo | Respuesta |
+| --- | --- | --- | --- |
+| POST | `/api/auth/registro` | público | 201 + token. Siempre nace como `USUARIO` |
+| POST | `/api/auth/login` | público | 200 + token. 401 si falla |
+| GET | `/api/auth/yo` | autenticado | La cuenta del token, con su rol |
+| POST | `/api/propuestas` | `USUARIO` | 201. Propone un lugar |
+| GET | `/api/propuestas/mias` | `USUARIO` | Historial del propio usuario |
+| GET | `/api/propuestas/pendientes` | `COLABORADOR` | Cola de moderación |
+| PUT | `/api/propuestas/{id}/revision` | `COLABORADOR` | Aprueba o rechaza. 400 si rechaza sin motivo |
+| GET | `/api/admin/usuarios` | `ADMIN` | Lista de cuentas, con filtro `?rol=` |
+| GET | `/api/admin/usuarios/{id}` | `ADMIN` | Una cuenta |
+| PUT | `/api/admin/usuarios/{id}/rol` | `ADMIN` | Cambia el rol, con las 3 reglas |
+| PATCH | `/api/admin/usuarios/{id}/estado` | `ADMIN` | Activa o desactiva. **No hay borrado** |
+
+**El registro no acepta un `rol`.** Aunque el JSON lo lleve, el DTO lo descarta:
+aceptarlo sería la vía más fácil para que cualquiera se autoproclamara
+administrador.
+
+**Las cuentas no se borran, se desactivan.** Las propuestas y revisiones guardan
+la referencia a su autor, así que un `DELETE` dejaría el historial huérfano.
+
+**Al aprobar, el identificador del lugar se genera en ese momento**, a partir del
+nombre y de las coordenadas (`museo_larco_12_073_77_070`). Pedirlo al proponer solo
+generaría colisiones que el usuario no puede ver. La consecuencia es que el
+sistema **no deduplica por nombre**: si el lugar ya existe, el moderador ve la
+propuesta y la rechaza, porque no hay forma de que el sistema lo sepa.
+
+### Sobre el token
+
+El JWT dura 8 horas y **no se comprueba contra la base en cada petición**. Esa es
+la contrapartida de no tener servidor de sesiones:
+
+- Un cambio de rol no tiene efecto hasta que el token caduca.
+- Desactivar una cuenta no la expulsa al instante.
+
+Con 8 horas la ventana es acotada. Si hiciera falta expulsar a alguien en el
+segundo, la solución es una lista de tokens revocados, que devuelve el estado al
+servidor y que aquí no se ha querido pagar.
 
 ## Endpoints
 
@@ -133,14 +221,23 @@ nada a mano.
 Ejemplos:
 
 ```bash
+# Lectura: pública, no hace falta token
 curl http://localhost:8080/api/countries
 curl "http://localhost:8080/api/places?category=ARQUEOLOGIA"
 
+# Escritura: exige el rol COLABORADOR o superior
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"root","password":"tu-contrasena"}' | jq -r .token)
+
 curl -X POST http://localhost:8080/api/places \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{"id":"nuevo_lugar","name":"Nuevo lugar","country":"PE",
        "lat":-12.0,"lng":-77.0,"category":"ARTE"}'
 ```
+
+Sin el `Authorization`, el `POST` devuelve 401. Con un token de `USUARIO`, 403.
 
 ### Formato de error
 
@@ -167,6 +264,9 @@ misma forma, para que el cliente tenga un único formato que parsear:
 | Identificador repetido | 409 |
 | Violación de un CHECK o clave foránea | 409 |
 | Campo inválido o enum desconocido | 400 |
+| Petición incoherente (rechazar sin motivo) | 400 |
+| Sin token, o token caducado | 401 |
+| Con token, pero el rol no llega | 403 |
 
 ## Base de datos
 
@@ -178,7 +278,8 @@ misma forma, para que el cliente tenga un único formato que parsear:
 | `V2__Add_category_constraints.sql` | CHECK de las 9 categorías |
 | `V3__Create_paises_table.sql` | Tablas `paises` y `paises_series_historicas` |
 | `V4__Insert_Into_Lugares_table.sql` | 8 lugares de Perú |
-| `V5__indices_y_restricciones.sql` | Índices, unicidad y CHECK (nueva en esta migración) |
+| `V5__indices_y_restricciones.sql` | Índices, unicidad y CHECK |
+| `V6__usuarios_y_propuestas.sql` | Tablas `usuarios` y `propuestas_lugar` (nueva) |
 
 `V1` a `V4` están **copiados byte a byte** del proyecto de Quarkus. No es descuido:
 Flyway guarda un checksum de cada migración ya aplicada, y reescribir aunque sea un
@@ -197,6 +298,24 @@ mismatch"*.
 3. **`lugares.country` duplicaba `lugares.pais_code`** sin ninguna restricción que los
    mantuviera iguales. Ahora hay un `CHECK (country = pais_code)`, y por eso la entidad
    `Lugar` escribe ambas columnas siempre juntas, a través de `setPais(Pais)`.
+
+`V6` añade `usuarios` y `propuestas_lugar`. Tres decisiones suyas:
+
+1. **No siembra ninguna cuenta.** El primer `ADMIN_SISTEMA` lo crea el arranque desde
+   variables de entorno. Una cuenta con contraseña fija en el SQL quedaría escrita en
+   el historial de git, y da igual que el tutorial la llame "de ejemplo": existe en
+   todos los entornos y en todos los despliegues futuros.
+2. **Los CHECK repiten las reglas de Java.** El `rol` se valida en el enum y también en
+   la base, para que un `INSERT` manual no deje un valor que la aplicación no sepa
+   interpretar.
+3. **La coherencia de la moderación se impone en la base.**
+   `ck_propuestas_rechazo_coherente`
+   exige que una propuesta esté `RECHAZADA` si y solo si tiene motivo, y
+   `ck_propuestas_revision_coherente` que una propuesta revisada tenga fecha. Son las
+   invariantes que el código de aplicación da por ciertas.
+
+La propuesta **no tiene columna de `id` de lugar**: el identificador se genera al
+aprobar, cuando se puede comprobar que no choque con ninguno existente.
 
 ### Configuración
 
@@ -217,17 +336,25 @@ perezoso por país y por colección.
 ./mvnw test
 ```
 
-28 pruebas, sin necesidad de base de datos:
+66 pruebas, sin necesidad de base de datos:
 
 | Clase | Qué cubre |
 | --- | --- |
 | `ResponseMapperTest` | Mapeo entidad → DTO, enums por nombre, `country` sincronizado con el país, métricas nulas |
 | `LugarServiceImplTest` | Reglas de negocio con repositorios simulados: duplicados, país inexistente, actualización parcial, agrupación en memoria |
 | `LugarControllerTest` | Slice de Spring MVC: rutas, forma del JSON, grupos de validación, cuerpo `ApiError` |
+| `JerarquiaTest` | La jerarquía de roles, incluidas las igualdades: dos `ADMIN` no se tocan, nadie delega lo que no tiene |
+| `AdminUsuarioServiceImplTest` | Las tres reglas de administración y el orden de las comprobaciones |
+| `PropuestaServiceImplTest` | Aprobar crea el lugar, rechazar exige motivo, nadie aprueba lo suyo, no se revisa dos veces |
+
+En `JerarquiaTest` se cubren los casos de igualdad a propósito: un `>=` donde
+debería haber un `>` permitiría a un administrador degradar a otro, y el fallo no
+daría ninguna excepción, sino un agujero silencioso.
 
 No hay pruebas de integración contra PostgreSQL porque requieren una base de datos o
 Docker. Si se quieren, el camino es Testcontainers con PostgreSQL
 (`org.testcontainers:postgresql`), que ya está instalado en la máquina.
+
 
 ## Diferencias con la versión Quarkus
 
