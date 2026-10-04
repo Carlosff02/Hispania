@@ -97,6 +97,34 @@
             <artifactId>spring-boot-webmvc-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            Testcontainers: las pruebas de integracion levantan un Postgres de verdad
+            en Docker en vez de fingirlo con una base en memoria. Es lo unico que
+            reproduce de verdad lo que mas se ha roto en este proyecto: los scripts de
+            Flyway, el `ddl-auto=validate` de Hibernate contra el esquema migrado y los
+            CHECK de Postgres. Un H2 no habria detectado ni el conflicto de categorias
+            de V1/V2 ni el enum `Region` que no encajaba con los datos.
+
+            A partir de Testcontainers 2 los modulos llevan prefijo `testcontainers-`
+            (`org.testcontainers:postgresql` ya no existe) y su version la fija el
+            `testcontainers.version` que declara el parent de Spring Boot, por eso aqui
+            no se escribe `<version>`.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
