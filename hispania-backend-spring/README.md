@@ -73,6 +73,43 @@ La versión de Quarkus tenía `static fromEntity(...)` dentro de los DTO, lo que
 DTO son records sin ningún método que reciba entidades. Así se puede cambiar el modelo
 de datos sin que se rompa la capa HTTP, y al revés.
 
+### Por qué `Region` no puede usar su nombre como valor
+
+`Region` es el único enum del proyecto cuyo valor persistido **no** es el nombre de la
+constante, y el motivo es concreto: el texto no puede ser un identificador de Java.
+
+| | Constante | Valor en base y JSON |
+| --- | --- | --- |
+| 1 | `NORTEAMERICA` | `Norteamérica` |
+| 2 | `CENTROAMERICA` | `Centroamérica` |
+| 3 | `CARIBE` | `Caribe` |
+| 4 | `ANDINA` | `Andina` |
+| 5 | `CONO_SUR` | `Cono Sur` ← lleva espacio |
+
+Esos textos son los que escribieron las migraciones (`V3`) y los que consume el
+frontend, que valida contra una lista cerrada en `countries.service.ts` y **avisa en
+consola y cae en `Andina`** si no coincide. Renombrar las constantes a `Norteamérica`
+habría dejado `Cono Sur` sin poder existir, y `NORTEAMERICA` en el JSON habría pintado
+México como "Andina" sin ningún error visible.
+
+De ahí el par `Region` + `RegionConvertidor`:
+
+- `Region.getValor()` lleva el texto, con `@JsonValue` para la salida y `@JsonCreator`
+  para la entrada.
+- `RegionConvertidor` es un `AttributeConverter` para JPA, de modo que la columna
+  `VARCHAR(50)` guarda y lee el texto, no el ordinal ni el nombre de la constante.
+- `ResponseMapper` llama a `getValor()` y no a `.name()`.
+
+Sin el converter, `@Enumerated(EnumType.STRING)` leía `'Norteamérica'` buscando una
+constante llamada así y fallaba: **`GET /api/countries` devolvía 500** y, con solo
+arreglar eso, el JSON habría seguido mandando `NORTEAMERICA` y el frontend habría
+seguido dibujando México en la región equivocada sin que nada fallara. Los dos fallos
+estaban en el mismo sitio.
+
+`CategoriaLugar` **sí** usa su nombre como valor (`ARTE`, `DANZA`, …) y no necesita
+converter: es la razón por la que las dos mitades del enum parecen inconsistentes, y
+por lo que `RegionConvertidorTest` fija el contrato de texto en las dos direcciones.
+
 ## Requisitos
 
 - **JDK 25** (compila con `--release 25`; el proyecto funciona con 17+)
@@ -234,7 +271,7 @@ Y para la regla que excluye, el método propio:
 | --- | --- | --- | --- |
 | POST | `/api/auth/registro` | público | 201 + token. Siempre nace como `USUARIO` |
 | POST | `/api/auth/login` | público | 200 + token. 401 si falla |
-| GET | `/api/auth/yo` | autenticado | La cuenta del token, con su rol |
+| GET | `/api/auth/yo` | autenticado | La cuenta del token, con su rol, y un token renovado. 401 si la cuenta está desactivada |
 | POST | `/api/propuestas` | `USUARIO` o `COLABORADOR` | 201. 403 para `ADMIN`+ |
 | GET | `/api/propuestas/mias` | autenticado | Historial del propio usuario |
 | GET | `/api/propuestas/pendientes` | `COLABORADOR`+ | Cola de moderación |
@@ -262,12 +299,42 @@ propuesta y la rechaza, porque no hay forma de que el sistema lo sepa.
 El JWT dura 8 horas y **no se comprueba contra la base en cada petición**. Esa es
 la contrapartida de no tener servidor de sesiones:
 
-- Un cambio de rol no tiene efecto hasta que el token caduca.
-- Desactivar una cuenta no la expulsa al instante.
+- Un cambio de rol no tiene efecto hasta que el token caduca **o hasta que el cliente
+  llame a `/api/auth/yo`**, que devuelve uno nuevo (ver la sección siguiente).
+- Desactivar una cuenta no la expulsa al instante, por el mismo motivo.
 
 Con 8 horas la ventana es acotada. Si hiciera falta expulsar a alguien en el
 segundo, la solución es una lista de tokens revocados, que devuelve el estado al
 servidor y que aquí no se ha querido pagar.
+
+### Renovación del token en `GET /api/auth/yo`
+
+La ventana anterior se cierra en la práctica por un endpoint: **`/api/auth/yo`
+devuelve un token nuevo, firmado con el rol que figura ahora en la base**, además
+de los datos de la cuenta.
+
+El frontend lo llama una vez al arrancar, desde `provideAppInitializer`, así que
+la renovación es automática y no exige volver a autenticarse. Antes de este
+cambio devolvía solo los datos: la interfaz pintaba el rol nuevo porque lo leía de
+la base, pero el token conservaba el anterior y la API respondía 403. Ese era el
+botón muerto del Sprint III.
+
+Dos propiedades del contrato:
+
+- **Una cuenta desactivada recibe 401, no un token nuevo.** Renovarle la sesión
+  sería lo contrario de desactivar a alguien. Como el resto de la API no consulta
+  la base, esta llamada es la única vía por la que una desactivación corta el
+  acceso antes de que caduque el token.
+- **Una cuenta inexistente recibe 404**, porque el identificador sale del claim
+  `uid` del token y no de un parámetro.
+
+El tipo de la respuesta es `AuthResponse`, el mismo del registro y del login, y
+no un tipo nuevo: la forma de "aquí tienes tu token y tu cuenta" ya existía.
+
+La limitación que queda es que la renovación solo ocurre al arrancar la
+aplicación. Si a alguien lo promovieran mientras la tiene abierta, su token
+antiguo sigue valiendo hasta que recargue. Renovar de forma continua exigiría un
+endpoint de refresco por enganche, que ya se resolvió en otro Sprint.
 
 ## Endpoints
 
@@ -350,11 +417,40 @@ misma forma, para que el cliente tenga un único formato que parsear:
 | `V4__Insert_Into_Lugares_table.sql` | 8 lugares de Perú |
 | `V5__indices_y_restricciones.sql` | Índices, unicidad y CHECK |
 | `V6__usuarios_y_propuestas.sql` | Tablas `usuarios` y `propuestas_lugar` (nueva) |
+| `V1_1__Normalizar_categorias.sql` | Corrige las 2 categorías que V1 sembró fuera del CHECK de V2 (nueva) |
 
 `V1` a `V4` están **copiados byte a byte** del proyecto de Quarkus. No es descuido:
 Flyway guarda un checksum de cada migración ya aplicada, y reescribir aunque sea un
 comentario haría que el arranque fallara con *"Validate failed: migration checksum
 mismatch"*.
+
+#### `V1_1`: por qué existe y por qué su versión es 1.1
+
+La base **no se podía construir**. `V1` sembraba dos lugares con `'Arte'` y
+`'Arqueología'` (mayúscula inicial, con tilde), y el CHECK que añade `V2` solo acepta
+las nueve constantes en mayúsculas. Applying V2 sobre esa base falla:
+
+```
+ERROR:  check constraint "lugares_category_check" of relation "lugares" is violated by some row
+```
+
+Como `V2` ya está aplicada en toda base existente y su checksum no se puede tocar,
+`V1_1` no reescribe nada: **añade** la normalización. Dos `UPDATE` explícitos, sin
+`ALTER` ni funciones, para que un fallo se pueda atribuir a una fila concreta.
+
+Flyway interpreta `V1_1` como versión **1.1** (convierte los guiones bajos en puntos), y
+por eso se ordena entre `V1` y `V2`:
+
+- **Base nueva:** se aplica todo en orden natural, `1 → 1.1 → 2 → …`. Es lo que hace
+  `MigracionesSobrePostgresTest`.
+- **Base existente con `V1..V6`:** `1.1` es *menor* que la última aplicada, así que
+  Flyway la rechazaría con *"Detected resolved migration not applied to database"*. Por
+  eso `application.properties` fija `spring.flyway.out-of-order=true`, y en ese caso la
+  migración **no toca ninguna fila**, porque el CHECK de `V2` ya obliga a los valores
+  canónicos.
+
+`out-of-order` es el precio de no poder reescribir el historial. Se paga solo aquí, y
+las tres propiedades documentan el porqué junto a la línea que las activa.
 
 `V5` sí es nueva, y ataca tres problemas del esquema:
 
@@ -406,7 +502,7 @@ perezoso por país y por colección.
 ./mvnw test
 ```
 
-91 pruebas, sin necesidad de base de datos:
+116 pruebas sin base de datos, más 6 de integración con Postgres:
 
 | Clase | Qué cubre |
 | --- | --- |
@@ -417,6 +513,8 @@ perezoso por país y por colección.
 | `PermisosDeEscrituraTest` | El umbral real de cada endpoint, deducido de su `@PreAuthorize` y evaluado con SpEL |
 | `AdminUsuarioServiceImplTest` | Las tres reglas de administración y el orden de las comprobaciones |
 | `PropuestaServiceImplTest` | Aprobar crea el lugar, rechazar exige motivo, la autorevisión se acota a quien no escribe directo, no se revisa dos veces |
+| `AuthServiceImplTest` | `usuarioActual` renueva el token con el rol **de la base**, no el del token: cuenta inactiva sin token nuevo (401), inexistente 404, y el `uid` del claim |
+| `RegionConvertidorTest` | El texto de `Region` en las dos direcciones, incluidos `"Cono Sur"` (con espacio) y el rechazo de `"NORTEAMERICA"` sin tilde |
 | `PatrimonioApplicationTest` | El arranque aborta si faltan `DB_PASSWORD` o `JWT_SECRET`, en sus formas canónica y alternativa |
 
 En `JerarquiaTest` se cubren los casos de igualdad a propósito: un `>=` donde
@@ -431,9 +529,41 @@ el bean `jerarquia` de verdad y para cada rol. Si el borrado vuelve a escribirse
 ningún otro test: la anotación sería válida para Spring, el endpoint respondería, y
 lo único que cambiaría es que un colaborador puede borrar un lugar curado.
 
-No hay pruebas de integración contra PostgreSQL porque requieren una base de datos o
-Docker. Si se quieren, el camino es Testcontainers con PostgreSQL
-(`org.testcontainers:postgresql`), que ya está instalado en la máquina.
+### Pruebas de integración: `MigracionesSobrePostgresTest`
+
+Hay una clase que levanta **un Postgres de verdad** con Testcontainers y le aplica la
+cadena completa de migraciones. No es una base en memoria a propósito: los dos fallos
+más caros de este proyecto solo se ven contra el motor real, y ninguno habría salido
+con un H2 o un H2 con dialecto.
+
+| Lo que comprueba | Qué fallo real detecta |
+| --- | --- |
+| Las 7 versiones aplicadas en orden: `1, 1.1, 2, 3, 4, 5, 6` | Una migración borrada, renombrada o con la versión cambiada |
+| `machu` → `ARQUEOLOGIA` y `mali` → `ARTE`, resoltas con `valueOf` | V1 sembrando `'Arqueología'` y el CHECK de V2 exigiendo mayúsculas |
+| Ninguna categoría fuera de las nueve del enum | Enum y `CHECK` desincronizados en cualquier dirección |
+| `region` en la base es `Norteamérica`, no `NORTEAMERICA` | El enum guardando el nombre de la constante |
+| `PaisRepository.findAll()` no lanza | El 500 de `GET /api/countries` |
+| `region` de la respuesta está en la lista cerrada del frontend | México dibujándose como "Andina" sin ningún error visible |
+| Los lugares de un país vienen anidados | El segundo fetch que el frontend ya no hace |
+
+Que el contexto arranque **es parte de la aserción**: `ddl-auto=validate` compara las
+entidades con el esquema migrado y detiene el arranque si no coinciden, así que la
+prueba no puede pasar con el esquema desalineado aunque las consultas den bien.
+
+Requiere Docker en la máquina. Levanta `postgres:17-alpine` y lo tira al terminar;
+no toca el contenedor de desarrollo. Tarda ~30 s la primera vez (descarga la imagen) y
+~20 s después.
+
+La versión de Postgres importa y **actualmente hay una discrepancia**: el README
+declara PostgreSQL 17, la prueba usa `postgres:17-alpine`, pero el contenedor de
+desarrollo de esta máquina corre **PostgreSQL 15.15**. Conviene decidir cuál es la
+versión objetivo y alinear las tres.
+
+Estas pruebas no cubren todavía la renovación de token por HTTP: `AuthServiceImplTest`
+lo verifica con una unidad, y el escenario completo (cambiar el rol y que el cambio
+surta efecto en la siguiente llamada) se probó a mano contra la aplicación en marcha,
+pero no está automatizado. Automatizarlo es el siguiente paso natural, porque necesita
+el mismo Postgres que ya está montado aquí.
 
 
 ## Diferencias con la versión Quarkus
