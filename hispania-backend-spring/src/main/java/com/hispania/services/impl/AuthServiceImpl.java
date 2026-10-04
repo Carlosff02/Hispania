@@ -127,12 +127,29 @@ public class AuthServiceImpl implements AuthService {
         return emitirToken(usuario);
     }
 
+    /**
+     * Datos de la cuenta y token nuevo con el rol vigente.
+     *
+     * <p>El token se vuelve a firmar con lo que hay en la base, no con lo que
+     * traia el token de la peticion. Es lo que hace que un ascenso surta efecto
+     * sin pedirle a nadie que cierre sesion.
+     *
+     * <p>Una cuenta desactivada recibe 401 en vez de un token nuevo: renovar la
+     * sesion seria justo lo contrario de lo que significa desactivar a alguien.
+     * Mientras el token viejo siga siendo valido, esta llamada es la unica via
+     * que puede cortar el acceso, porque el resto de la API no consulta la base.
+     */
     @Override
     @Transactional(readOnly = true)
-    public UsuarioResponse usuarioActual(Long id) {
-        return usuarios.findById(id)
-                .map(AuthServiceImpl::aResponse)
+    public AuthResponse usuarioActual(Long id) {
+        Usuario usuario = usuarios.findById(id)
                 .orElseThrow(() -> ResourceNotFoundException.de("Usuario", id));
+
+        if (!usuario.isActivo()) {
+            throw new CredencialesInvalidasException();
+        }
+
+        return emitirToken(usuario);
     }
 
     /**

@@ -3,7 +3,6 @@ package com.hispania.presentation.controllers;
 import com.hispania.presentation.dto.request.LoginRequest;
 import com.hispania.presentation.dto.request.RegistroRequest;
 import com.hispania.presentation.dto.response.AuthResponse;
-import com.hispania.presentation.dto.response.UsuarioResponse;
 import com.hispania.services.interfaces.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -59,18 +58,26 @@ public class AuthController {
     }
 
     /**
-     * {@code GET /api/auth/yo} -&gt; 200 con los datos de la cuenta.
+     * {@code GET /api/auth/yo} -&gt; 200 con los datos de la cuenta y un token
+     * renovado.
      *
      * <p>Requiere token porque cae en el {@code anyRequest().authenticated()} de
      * {@code SecurityConfig}. El frontend lo llama al arrancar para saber si el
-     * token guardado sigue siendo valido y con que rol cuenta.
+     * token guardado sigue siendo valido, con que rol cuenta, y sustituirlo por
+     * uno recien firmado.
+     *
+     * <p>Devolver el token y no solo los datos es lo que cierra el ascenso de
+     * usuarios. El rol viaja dentro del JWT, de modo que revalidar la sesion sin
+     * renovarlo deja el menus mostrando opciones que la API responde con 403.
      *
      * <p>El identificador sale del claim {@code uid} del token, no de un parametro
      * en la URL. Si fuera un parametro, cualquier usuario autenticado podria
      * preguntar por la cuenta de otro con un 200.
+     *
+     * <p>Una cuenta desactivada recibe 401 y no un token nuevo.
      */
     @GetMapping("/yo")
-    public ResponseEntity<UsuarioResponse> yo(@AuthenticationPrincipal Jwt jwt) {
+    public ResponseEntity<AuthResponse> yo(@AuthenticationPrincipal Jwt jwt) {
         Long id = Long.valueOf(jwt.getClaim("uid").toString());
         return ResponseEntity.ok(authService.usuarioActual(id));
     }

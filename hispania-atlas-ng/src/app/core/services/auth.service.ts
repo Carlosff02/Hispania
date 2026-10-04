@@ -69,11 +69,16 @@ export class AuthService {
   }
 
   /**
-   * Revalida el token guardado contra el servidor y actualiza el rol.
+   * Revalida el token guardado contra el servidor y lo sustituye por uno nuevo.
    *
-   * Hace falta porque el rol viaja dentro del token: si un administrador acaba
-   * de promover a alguien, el token antiguo sigue diciendo `USUARIO` hasta que
-   * caduca. `GET /auth/yo` lee de la base, así que devuelve el rol real.
+   * Hace falta porque el rol viaja dentro del token: si un administrador acaba de
+   * promover a alguien, el token antiguo sigue diciendo `USUARIO` hasta que caduca.
+   * Por eso `GET /auth/yo` no devuelve solo los datos de la cuenta, sino también
+   * un token recién firmado con el rol que figura ahora en la base. Sin ese token
+   * nuevo, el menú mostraría «Moderar propuestas» y cada llamada devolvería 403.
+   *
+   * `establecerSesion` se encarga de guardar el token y el usuario, así que este
+   * método no distingue entre un ingreso y una revalidación.
    *
    * Si el token caducó o la cuenta se desactivó, el servidor responde 401 y se
    * cierra la sesión en vez de dejar al usuario en una pantalla a la que ya no
@@ -85,11 +90,11 @@ export class AuthService {
       return;
     }
     try {
-      const usuario = await firstValueFrom(
-        this.http.get<Usuario>(`${this.baseUrl}/auth/yo`),
+      this.establecerSesion(
+        await firstValueFrom(
+          this.http.get<AuthResponse>(`${this.baseUrl}/auth/yo`),
+        ),
       );
-      this._usuario.set(usuario);
-      localStorage.setItem(CLAVE_USUARIO, JSON.stringify(usuario));
     } catch {
       this.logout();
     }
