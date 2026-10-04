@@ -1,9 +1,9 @@
 package com.hispania.persistence.entity;
 
+import com.hispania.persistence.converter.RegionConvertidor;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
@@ -35,7 +35,7 @@ public class Pais {
     @Column(name = "lng", nullable = false)
     private double lng;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = RegionConvertidor.class)
     @Column(name = "region", length = 50, nullable = false)
     private Region region;
 

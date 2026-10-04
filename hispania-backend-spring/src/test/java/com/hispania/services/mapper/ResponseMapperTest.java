@@ -108,7 +108,7 @@ class ResponseMapperTest {
                 List.of(serie(2023, 272.755), serie(2026, 380)));
 
         assertThat(dto.code()).isEqualTo("PE");
-        assertThat(dto.region()).isEqualTo("ANDINA");
+        assertThat(dto.region()).isEqualTo("Andina");
         assertThat(dto.lugares()).hasSize(1);
         assertThat(dto.seriesHistoricas()).hasSize(2);
         // El orden lo impone el repositorio; el mapper lo respeta sin reordenar.

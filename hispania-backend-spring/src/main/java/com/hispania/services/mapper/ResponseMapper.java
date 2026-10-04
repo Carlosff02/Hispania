@@ -78,7 +78,7 @@ public class ResponseMapper {
                 entity.getCapital(),
                 entity.getLat(),
                 entity.getLng(),
-                entity.getRegion() != null ? entity.getRegion().name() : null,
+                entity.getRegion() != null ? entity.getRegion().getValor() : null,
                 entity.getDescText(),
                 series.stream().map(this::toSerieResponse).toList(),
                 lugares.stream().map(this::toLugarResponse).toList()
