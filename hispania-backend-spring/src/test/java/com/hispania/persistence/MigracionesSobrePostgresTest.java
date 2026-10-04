@@ -72,13 +72,27 @@ class MigracionesSobrePostgresTest {
     private PaisService paisService;
 
     @Test
-    @DisplayName("aplica V1..V6 mas V1_1, sin saltos y en el orden esperado")
+    @DisplayName("aplica V1..V7 mas V1_1, sin saltos y en el orden esperado")
     void aplicaTodaLaCadena() {
         List<String> versiones = jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank",
                 String.class);
 
-        assertThat(versiones).containsExactly("1", "1.1", "2", "3", "4", "5", "6");
+        assertThat(versiones).containsExactly("1", "1.1", "2", "3", "4", "5", "6", "7");
+    }
+
+    @Test
+    @DisplayName("V7 deja los 19 paises que define el frontend, cada uno con una region canonica")
+    void siembraLosPaisesQueFaltaban() {
+        // V3 solo siembra Mexico y Peru, y V7 anade los 17 que faltaban. El
+        // frontend ya define 19, asi que es el numero que tiene que haber.
+        assertThat(paisRepository.findAllByOrderByCodeAsc()).hasSize(19);
+
+        // La comprobacion fuerte no es el total, sino que ningun pais quede con un
+        // valor de region que el enum no sepa resolver: eso es exactamente lo que
+        // devolvia un 500 en GET /api/countries.
+        assertThat(jdbc.queryForList("SELECT DISTINCT region FROM paises", String.class))
+                .containsExactlyInAnyOrder("Norteamérica", "Centroamérica", "Caribe", "Andina", "Cono Sur");
     }
 
     @Test

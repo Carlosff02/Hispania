@@ -418,6 +418,7 @@ misma forma, para que el cliente tenga un único formato que parsear:
 | `V5__indices_y_restricciones.sql` | Índices, unicidad y CHECK |
 | `V6__usuarios_y_propuestas.sql` | Tablas `usuarios` y `propuestas_lugar` (nueva) |
 | `V1_1__Normalizar_categorias.sql` | Corrige las 2 categorías que V1 sembró fuera del CHECK de V2 (nueva) |
+| `V7__Normalizar_regiones_y_sembrar_paises.sql` | Corrige las regiones que escribió el enum viejo, siembra los 17 países que faltaban y añade el CHECK de `region` (nueva) |
 
 `V1` a `V4` están **copiados byte a byte** del proyecto de Quarkus. No es descuido:
 Flyway guarda un checksum de cada migración ya aplicada, y reescribir aunque sea un
@@ -451,6 +452,58 @@ por eso se ordena entre `V1` y `V2`:
 
 `out-of-order` es el precio de no poder reescribir el historial. Se paga solo aquí, y
 las tres propiedades documentan el porqué junto a la línea que las activa.
+
+#### `V7`: las regiones que escribió el enum viejo, y los 17 países que faltaban
+
+Dos cosas distintas que pasaron a la vez, en la misma migración.
+
+**El 500 de `GET /api/countries`.** `Region` se guardaba con
+`@Enumerated(EnumType.STRING)`, que escribe el **nombre de la constante**. La columna
+`paises.region` quedó llena de `NORTEAMERICA`, `ANDINA`, `CONO_SUR`… Esos nombres no
+pueden ser el dato: `"Cono Sur"` lleva espacio y no es un identificador de Java válido.
+Por eso `Region` lleva ahora su valor textual aparte y lo traduce `RegionConvertidor`.
+
+Los cinco nombres difieren del texto canónico, así que hacen falta los cinco `UPDATE`
+(cuatro solo por las mayúsculas). Con el enum viejo, leer esas filas lanzaba
+`IllegalArgumentException` y el endpoint devolvía 500; y antes de `RegionConvertidor`,
+el mismo dato salía en el JSON como `CONO_SUR`, que el frontend no reconoce y
+descartaba **en silencio** dibujando el país como "Andina".
+
+**Los países que faltaban.** `V3` solo siembra México y Perú, y el frontend ya define
+19 en `countries.ts`. `V7` siembra los que falten.
+
+El contrato de idempotencia es por código, no "los que faltan en esta base":
+
+```sql
+WHERE NOT EXISTS (SELECT 1 FROM paises p WHERE p.code = v.code)
+```
+
+Así la misma migración sirve para una base recién creada (donde `V3` ya puso `MX` y
+`PE`), para una base con los 4 que había y para una base completa. Escribir en su lugar
+`WHERE code NOT IN ('MX','PE','AR','CL')` haría que en una base nueva se saltaran
+justo los países que sí hay que sembrar.
+
+De los países que ya existen **solo se les corrige `region`**: `name`, `capital`, `lat`
+y `lng` no se tocan, porque en una base real pueden estar corregidos a mano.
+
+Lo que `V7` **no** hace:
+
+- **No siembra series históricas.** Los 19 países quedan sin
+  `paises_series_historicas`, así que sus gráficos saldrán vacíos.
+  `PaisServiceImpl` responde con lista vacía en vez de fallar
+  (`seriesPorPais.getOrDefault(codigo, List.of())`). Hace falta una migración de datos
+  aparte.
+- **No arregla el futuro.** Por eso termina añadiendo el CHECK
+  `paises_region_check`: un valor inventado lo rechaza Postgres en el `INSERT`, con un
+  error que nombra la fila, en vez de aparecer como un 500 tres capas más abajo. Ese
+  hueco es el que dejó pasar el bug: `lugares.category` tiene CHECK desde `V2`, y
+  `paises.region` no tenía ninguno.
+
+Antes del CHECK hay un guardia que aborta la migración si queda algún valor que no sea
+canónico, y el `RAISE EXCEPTION` **los lista**. Sin él, el CHECK fallaría con
+`violated by some row`, que no dice cuál es el culpable. Flyway envuelve la migración en
+una transacción, así que el guardia también deshace los `UPDATE` anteriores: no deja la
+tabla a medio normalizar.
 
 `V5` sí es nueva, y ataca tres problemas del esquema:
 
@@ -502,7 +555,7 @@ perezoso por país y por colección.
 ./mvnw test
 ```
 
-116 pruebas sin base de datos, más 6 de integración con Postgres:
+117 pruebas sin base de datos, más 12 de integración con Postgres:
 
 | Clase | Qué cubre |
 | --- | --- |
@@ -516,6 +569,9 @@ perezoso por país y por colección.
 | `AuthServiceImplTest` | `usuarioActual` renueva el token con el rol **de la base**, no el del token: cuenta inactiva sin token nuevo (401), inexistente 404, y el `uid` del claim |
 | `RegionConvertidorTest` | El texto de `Region` en las dos direcciones, incluidos `"Cono Sur"` (con espacio) y el rechazo de `"NORTEAMERICA"` sin tilde |
 | `PatrimonioApplicationTest` | El arranque aborta si faltan `DB_PASSWORD` o `JWT_SECRET`, en sus formas canónica y alternativa |
+
+Sobre el total: **129 pruebas**, de las cuales 12 necesitan Docker. Las 117 restantes no
+tocan una base de datos.
 
 En `JerarquiaTest` se cubren los casos de igualdad a propósito: un `>=` donde
 debería haber un `>` permitiría a un administrador degradar a otro, y el fallo no
@@ -538,10 +594,11 @@ con un H2 o un H2 con dialecto.
 
 | Lo que comprueba | Qué fallo real detecta |
 | --- | --- |
-| Las 7 versiones aplicadas en orden: `1, 1.1, 2, 3, 4, 5, 6` | Una migración borrada, renombrada o con la versión cambiada |
-| `machu` → `ARQUEOLOGIA` y `mali` → `ARTE`, resoltas con `valueOf` | V1 sembrando `'Arqueología'` y el CHECK de V2 exigiendo mayúsculas |
+| Las 8 versiones aplicadas en orden: `1, 1.1, 2, 3, 4, 5, 6, 7` | Una migración borrada, renombrada o con la versión cambiada |
+| `machu` → `ARQUEOLOGIA` y `mali` → `ARTE`, resueltas con `valueOf` | V1 sembrando `'Arqueología'` y el CHECK de V2 exigiendo mayúsculas |
 | Ninguna categoría fuera de las nueve del enum | Enum y `CHECK` desincronizados en cualquier dirección |
 | `region` en la base es `Norteamérica`, no `NORTEAMERICA` | El enum guardando el nombre de la constante |
+| Los 19 países presentes y ninguna `region` fuera de las cinco canónicas | El 500 de `GET /api/countries` |
 | `PaisRepository.findAll()` no lanza | El 500 de `GET /api/countries` |
 | `region` de la respuesta está en la lista cerrada del frontend | México dibujándose como "Andina" sin ningún error visible |
 | Los lugares de un país vienen anidados | El segundo fetch que el frontend ya no hace |
@@ -554,10 +611,37 @@ Requiere Docker en la máquina. Levanta `postgres:17-alpine` y lo tira al termin
 no toca el contenedor de desarrollo. Tarda ~30 s la primera vez (descarga la imagen) y
 ~20 s después.
 
-La versión de Postgres importa y **actualmente hay una discrepancia**: el README
-declara PostgreSQL 17, la prueba usa `postgres:17-alpine`, pero el contenedor de
-desarrollo de esta máquina corre **PostgreSQL 15.15**. Conviene decidir cuál es la
-versión objetivo y alinear las tres.
+La versión de Postgres importa, y aquí ya no hay discrepancia: el README declara
+PostgreSQL 17, las pruebas usan `postgres:17-alpine`, y el servicio de Windows
+`postgresql-x64-17` contra el que corre la aplicación en desarrollo también es 17.
+
+Conviene saber, porque confunde, que en esta máquina hay **otro** Postgres: el contenedor
+`postgres-db`, que es un 15. No lo usa la aplicación —no tiene ni la base
+`hispania_db`—, pero publica el puerto 5432 y se le habla por el mismo sitio. Cuando los
+dos compete por ese puerto, gana el servicio de Windows, y por eso
+`docker exec postgres-db psql … -d hispania_db` responde *"database does not exist"* en
+lugar de un error de conexión.
+
+### Pruebas de migración: `MigracionV7PaisesTest`
+
+`MigracionesSobrePostgresTest` aplica la cadena sobre una base **nueva**, y en una base
+nueva `V3` siembra México y Perú con el texto ya correcto. El `CONO_SUR` de la base de
+desarrollo no aparece ahí: hace falta una base donde alguien escribió con el enum viejo.
+Esta clase existe justo para eso, y controla el punto de parada de Flyway: deja la base
+en `V6`, la devuelve al estado que estaba la real, y solo entonces aplica `V7`.
+
+| Lo que comprueba | Por qué |
+| --- | --- |
+| Los cinco nombres heredados (`NORTEAMERICA`, `CENTROAMERICA`, `CARIBE`, `ANDINA`, `CONO_SUR`) se normalizan | Que ningún `UPDATE` se quede sin ejercitar |
+| Quedan los 19 países, sin duplicados | `AR` y `CL` ya estaban: `V7` no los re-inserta |
+| No pisa `name`, `capital` ni coordenadas de un país existente | Que la siembra no gane la discusión con quien los corrigió a mano |
+| Aplicar `V7` dos veces no inserta nada | Que se pueda reejecutar a mano durante una depuración |
+| El guardia aborta y **deshace** los `UPDATE` previos | Que no deje la tabla con unas regiones normalizadas y otras no |
+| El CHECK rechaza `'CONO_SUR'` con un error que nombra la restricción | El 500 en `GET /api/countries`, ahora en el `INSERT` |
+
+Cada prueba usa **un esquema propio** en el mismo Postgres. Compartir uno obligaría a
+que cada test empezara en un estado dependiente del orden, que es lo que hace que una
+suite de migraciones no sirva para nada.
 
 Estas pruebas no cubren todavía la renovación de token por HTTP: `AuthServiceImplTest`
 lo verifica con una unidad, y el escenario completo (cambiar el rol y que el cambio
